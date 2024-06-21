@@ -5,5 +5,9 @@ Vortex Lattice Method in Python and Jupyter Notebook
 |------------------|------------------------------|
 | Author           | JaviLendi                    |
 | Version          | 0.0.1                        |
-| Python Version   | 3.6                          |
+| Python Version   | 3.12                         |
 | Requires         | Numpy, Matplotlib            |
+
+### Bug reporting
+
+Please feel free to open an [issue](https://github.com/JaviLendi/VLMPy/issues) on GitHub!
