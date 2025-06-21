@@ -1,0 +1,1 @@
+wing_sections: [{'chord_root': 1.0, 'chord_tip': 0.8, 'span_fraction': 8.0, 'sweep': np.float64(0.5235987755982988), 'alpha': np.float64(0.05235987755982989), 'dihedral': np.float64(0.06981317007977318), 'NACA_root': '3215', 'NACA_tip': '1310'}]

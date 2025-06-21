@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <div class="results-form-section">
+        <h2>Results</h2>
+        <form id="results-form" aria-label="Results Form">
+            <!-- Plot buttons -->
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotData('/plot/Lift', 'Lift')">Lift</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/Drag', 'Drag')">Drag</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CL', 'CL')">CL</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CD', 'CD')">CD</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CL_CD', 'CL vs CD')">CL vs CD</button>
+            </div>
+            <label>3D heatmap</label>
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotData('/plot/wi', 'Induced velocities')">Induced velocities</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/gammas', 'Gammas')">Gammas</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/curvature', 'Curvature')">Wing curvature</button>
+            </div>
+            <label>2D heatmap</label>
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotData('/plot/wi_2d', 'Induced velocities')">Induced velocities</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/gammas_2d', 'Gammas')">Gammas</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/curvature_2d', 'Curvature')">Wing curvature</button>
+            </div>
+            <label>Load results</label>
+            <div class="button-group">
+                <input type="file" id="state-file-input" accept=".pkl" />
+                <button type="button" class="action-button" onclick="loadVLM()">Load</button>
+            </div>
+        </form>
+        <div class="results-numeric-section">
+            <h2>Numeric Results</h2>
+            <div class="numeric-results-grid">
+                <div class="result-item">
+                    <span class="result-label">Lift Coefficient (CL):</span>
+                    <span class="result-value">{{ cl }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Drag Coefficient (CD):</span>
+                    <span class="result-value">{{ cd }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Total Lift (N):</span>
+                    <span class="result-value">{{ total_lift }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Total Drag (N):</span>
+                    <span class="result-value">{{ total_drag }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Wing Lift (N):</span>
+                    <span class="result-value">{{ wing_lift }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Horizontal Stabilizer Lift (N):</span>
+                    <span class="result-value">{{ hs_lift }}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Vertical Stabilizer Lift (N):</span>
+                    <span class="result-value">{{ vs_lift }}</span>
+                </div>
+            </div>
+        </div>
+ <h2>Visualize a determined section of the span</h2>
+        <form id="chord-form" aria-label="Chord">
+            <section class="form-group">
+                <div class="input-group">
+                    <label for="n_section">Nº of section:</label>
+                    <input type="number" id="n_section" name="n_section" placeholder="Enter the number of the section (n)" value="{{ n_section }}" required aria-required="true">
+                </div>
+             </section>
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotData('/plot/LiftSection', 'LiftSection')">Lift</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/DragSection', 'DragSection')">Drag</button>
+                <button type="submit" class="action-button primary">Save</button>
+            </div>
+        </form>
+        <h2>Analis for different angles of attack</h2>
+        <form id="analisis-form" aria-label="Analisis">
+            <section class="form-group">
+                <div class="input-group">
+                    <label for="alphas">Angles of attack (º):</label>
+                    <input type="text" id="alphas" name="angles_deg" placeholder="Enter angles separated by commas (e.g. 0, 2, 4, 6)" value="{{ angles_deg }}" required aria-required="true">
+                </div>
+             </section>
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotData('/plot/CL-alpha', 'CL-alpha')">CL vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CD-alpha', 'CD-alpha')">CD vs alpha</button>
+                <button type="button" class="action-button" id="calculate-button" onclick="CalculateAngles()">Calculate</button>
+                <button type="submit" class="action-button primary">Save</button>
+                <div id="calculate-spinner" class="spinner" style="display: none;"></div>
+            </div>
+        </form>
+        <div id="message-container"></div>
+    </div>
+    <div id="plot-area" class="results-form-section" aria-live="polite"></div>
+    <div id="message-container"></div>
+</div>
+
+<script>
+// Populate state selector on page load
+document.addEventListener('DOMContentLoaded', () => {
+    fetch('/list_vlm_states')
+        .then(res => res.json())
+        .then(list => {
+            const selector = document.getElementById('state-selector');
+            list.states.forEach(fn => {
+                const option = document.createElement('option');
+                option.value = fn;
+                option.textContent = fn;
+                selector.appendChild(option);
+            });
+        }).catch(err => console.error('Failed to load state list', err));
+});
+
+function clearPlots() {
+    const plotArea = document.getElementById('plot-area');
+    if (plotArea) plotArea.innerHTML = '';
+}
+
+function loadVLM() {
+    const input = document.getElementById('state-file-input');
+    if (!input.files.length) {
+        alert('Please select a .pkl file to load');
+        return;
+    }
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('state_file', file);
+
+    fetch('/load_vlm_state', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const msgContainer = document.getElementById('message-container');
+        msgContainer.innerHTML = `<div class="message ${data.status === 'success' ? 'success' : 'error'}">${data.message}</div>`;
+        if (data.status === 'success') {
+            // Clear any existing plots to ensure fresh data
+            clearPlots();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        const msgContainer = document.getElementById('message-container');
+        msgContainer.innerHTML = `<div class="message error">An error occurred while loading the VLM state.</div>`;
+    });
+}
+
+function plotData(endpoint, title) {
+    // Ensure we start fresh by clearing plots
+    clearPlots();
+    fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}) // send empty JSON to satisfy Flask
+    })
+    .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    })
+    .then(plotJson => {
+        // existing plot rendering logic
+        renderPlot(plotJson, title);
+    })
+    .catch(err => {
+        console.error('Plot error:', err);
+        const msgContainer = document.getElementById('message-container');
+        msgContainer.innerHTML = `<div class="message error">Error plotting ${title}: ${err.message}</div>`;
+    });
+}
+</script>
+{% endblock %}

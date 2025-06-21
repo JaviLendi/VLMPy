@@ -334,11 +334,11 @@ def calculate_P_ij(panel_data):
             
     return P_ij
 
-def wing(panel_data, u, dz_c, alphas, rho, sweep, panel_lengths, n, m, wing_span):
+def wing(panel_data, u, dz_c, alpha, rho, sweep, panel_lengths, n, m, wing_span):
     # Calculate the induced velocities at each control point
     w_i = np.zeros(len(panel_data))
     for i in range(len(panel_data)):
-        w_i[i] = u * ((dz_c[i]) - (alphas))
+        w_i[i] = u * ((dz_c[i]) - (alpha))
 
     # Calculate P_ij (Aerodynamic Influence Coefficient matrix)
     P_ij = calculate_P_ij(panel_data)

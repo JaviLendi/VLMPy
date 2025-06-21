@@ -1,0 +1,40 @@
+{
+    "wing_sections": [
+        {
+            "chord_root": 1,
+            "chord_tip": 0.8,
+            "span_fraction": 8,
+            "sweep": 30,
+            "alpha": 3,
+            "dihedral": 4,
+            "NACA_root": "3215",
+            "NACA_tip": "1310",
+            "flap_start": 0.6,
+            "flap_end": 0.9,
+            "flap_hinge_chord": 0.5,
+            "deflection_angle": 3
+        }
+    ],
+    "horizontal_stabilizer": {
+        "x_translate": 2,
+        "NACA_root": "3215",
+        "NACA_tip": "3215",
+        "chord_root": 0.5,
+        "chord_tip": 0.5,
+        "span_fraction": 2,
+        "sweep": 30,
+        "dihedral": 0.0,
+        "alpha": 0.0
+    },
+    "vertical_stabilizer": {
+        "x_translate": 2,
+        "NACA_root": "3215",
+        "NACA_tip": "3215",
+        "chord_root": 0.5,
+        "chord_tip": 0.5,
+        "span_fraction": 0.5,
+        "sweep": 30,
+        "dihedral": 90,
+        "alpha": 0.0
+    }
+}

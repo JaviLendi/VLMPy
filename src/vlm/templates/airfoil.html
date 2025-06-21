@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <div class="form-section">
+        <h2>NACA Airfoil Definition</h2>
+        <form id="airfoil-form" aria-label="NACA Airfoil Form">
+            <label for="naca">NACA Profile:</label>
+            <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
+            
+            <label for="u">Free Stream Velocity (m/s):</label>
+            <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
+            
+            <label for="alpha">Angle of Attack (deg):</label>
+            <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
+            
+            <label for="chord">Chord Length (m):</label>
+            <input type="number" id="chord" name="chord" min="-30" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
+            
+            <label for="n">Number of Points:</label>
+            <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
+            
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="plotAirfoil()">Make Plot</button>
+                <button type="button" class="action-button" onclick="saveAirfoil()">Save</button>
+                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
+                <button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
+                <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
+            </div>
+        </form>
+    </div>
+    <div id="plot-area" aria-live="polite"></div>
+    <div id="message-container"></div>
+</div>
+
+<script>
+function getFormDataAsJson(formId) {
+    const form = document.getElementById(formId);
+    return JSON.stringify(Object.fromEntries(new FormData(form)));
+}
+
+function plotAirfoil() {
+    const form = document.getElementById("airfoil-form");
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    fetch("/plot/airfoil", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: getFormDataAsJson("airfoil-form")
+    })
+    .then(response => response.json())
+    .then(data => {
+        const filename = `naca_${document.getElementById("naca").value}_airfoil`;
+        const plotData = JSON.parse(data.plot);
+        if (data.plot) {
+            const config = {
+                    displaylogo: false,
+                    displayModeBar: true,
+                    toImageButtonOptions: { filename, format: 'svg' }
+                };
+            Plotly.newPlot("plot-area", plotData.data, plotData.layout, config);
+        } else {
+            console.error("No plot data received");
+        }
+    })
+    .catch(error => console.error("Error generating plot:", error));
+}
+
+function saveAirfoil() {
+    const messageContainer = document.querySelector('.message-container');
+    
+    function showMessage(text, type) {
+        const existingMessages = messageContainer.querySelectorAll('.message');
+        existingMessages.forEach(msg => msg.remove());
+        
+        const message = document.createElement('div');
+        message.className = `message ${type}`;
+        message.textContent = text;
+        messageContainer.appendChild(message);
+        
+        setTimeout(() => {
+            message.remove();
+        }, 5000);
+    }
+
+    fetch("/save_airfoil", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: getFormDataAsJson("airfoil-form")
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => {
+                throw new Error(err.message || "Network response was not ok.");
+            });
+        }
+        return response.blob().then(blob => ({ blob, naca: document.getElementById("naca").value }));
+    })
+    .then(({ blob, naca }) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `naca_${naca}_airfoil.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showMessage(`Airfoil ${naca} saved successfully.`, 'success');
+    })
+    .catch(error => {
+        console.error("Error saving airfoil:", error);
+        showMessage(`Error: ${error.message}`, 'error');
+    });
+}
+
+function loadData(input) {
+    const messageContainer = document.querySelector('.message-container');
+    
+    function showMessage(text, type) {
+        const existingMessages = messageContainer.querySelectorAll('.message');
+        existingMessages.forEach(msg => msg.remove());
+        
+        const message = document.createElement('div');
+        message.className = `message ${type}`;
+        message.textContent = text;
+        messageContainer.appendChild(message);
+        
+        setTimeout(() => {
+            message.remove();
+        }, 5000);
+    }
+
+    const file = input.files[0];
+    if (!file) {
+        showMessage("No file selected.", 'error');
+        return;
+    }
+
+    if (!file.name.endsWith('.json')) {
+        showMessage("Please select a JSON file.", 'error');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        try {
+            const data = JSON.parse(event.target.result);
+            fetch('/load_airfoil', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw new Error(err.message || 'Network response was not ok.');
+                    });
+                }
+                return response.json();
+            })
+            .then(responseData => {
+                if (responseData.status === 'success' && responseData.airfoil) {
+                    document.getElementById('naca').value = responseData.airfoil.naca || '';
+                    document.getElementById('u').value = responseData.airfoil.u || '';
+                    document.getElementById('alpha').value = responseData.airfoil.alpha || '';
+                    document.getElementById('chord').value = responseData.airfoil.chord || '';
+                    document.getElementById('n').value = responseData.airfoil.n || '';
+                    showMessage(`Airfoil ${responseData.airfoil.naca || 'data'} loaded successfully.`, 'success');
+                } else {
+                    throw new Error(responseData.message || 'No airfoil data received');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading airfoil:', error);
+                showMessage(`Error: ${error.message}`, 'error');
+            });
+        } catch (error) {
+            console.error('Error parsing JSON:', error);
+            showMessage('Error: Invalid JSON file.', 'error');
+        }
+    };
+    reader.onerror = function() {
+        console.error('Error reading file:', reader.error);
+        showMessage('Error: Unable to read file.', 'error');
+    };
+    reader.readAsText(file);
+}
+
+function erasePlot() {
+    Plotly.purge("plot-area");
+}
+
+// Add event listener for Enter key to trigger plotAirfoil
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault(); // Prevent default form submission behavior
+        plotAirfoil();
+    }
+});
+</script>
+{% endblock %}

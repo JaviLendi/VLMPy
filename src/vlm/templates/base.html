@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VLMPy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script defer src="{{ url_for('static', filename='js/plotly-3.0.1.min.js') }}"></script>
+    <script>
+        // Apply saved theme immediately
+        (function() {
+            const savedMode = localStorage.getItem('appearance-mode') || 'System';
+            const html = document.documentElement;
+            if (savedMode === 'Light') {
+                html.classList.add('light-mode');
+            } else if (savedMode === 'Dark') {
+                html.classList.remove('light-mode');
+            } else if (savedMode === 'System') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                html.classList.toggle('light-mode', !prefersDark);
+            }
+        })();
+    </script>
+</head>
+<body>
+    <div class="wrapper">
+      <div id="loading-spinner" class="spinner_main"></div>
+        <header class="header">
+            <button id="menu-toggle" aria-label="Toggle menu" aria-expanded="false"><i class="fas fa-bars"></i></button>
+            <h1>VLMPy</h1>
+        </header>
+        <nav class="sidebar" aria-hidden="true">
+            <div class="sidebar-logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="VLMPy Logo" width="50">
+                <span>VLMPy</span>
+            </div>
+            <a href="/" class="sidebar-link"><i class="fas fa-home"></i> Welcome</a>
+            <a href="/airfoil" class="sidebar-link"><i class="fas fa-drafting-compass"></i> NACA Definition</a>
+            <a href="/wing" class="sidebar-link"><i class="fas fa-plane"></i> Plane Definition</a>
+            <a href="/results" class="sidebar-link"><i class="fas fa-chart-line"></i> Results</a>
+            <div class="appearance-toggle">
+                <label>Appearance Mode:</label>
+                <div class="toggle-buttons">
+                    <button class="appearance-btn" data-mode="Light" aria-label="Light Mode"><i class="fas fa-sun"></i></button>
+                    <button class="appearance-btn" data-mode="Dark" aria-label="Dark Mode"><i class="fas fa-moon"></i></button>
+                    <button class="appearance-btn" data-mode="System" aria-label="System Mode"><i class="fas fa-desktop"></i></button>
+                </div>
+            </div>
+        </nav>
+        <div class="overlay" aria-hidden="true"></div>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+        <script defer src="{{ url_for('static', filename='js/script.js') }}"></script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="welcome">
+    <div class="welcome-content">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="VLMPy Logo" width="50">
+        <h1>Welcome to VLMPy!</h1>
+        <h2>Your go-to tool for Vortex Lattice Method simulations</h2>
+        <p>VLMPy is a user-friendly tool for simulating and analyzing lifting surfaces using the Vortex Lattice Method (VLM).</p>
+        <a href="/airfoil" class="cta-button">Get Started</a>
+    </div>
+    <div class="welcome-bg-container">
+        <img src="{{ url_for('static', filename='images/background.svg') }}" alt="Background SVG" class="welcome-bg-svg">
+    </div>
+</div>
+
+<script>
+window.addEventListener('scroll', () => {
+    const bg = document.querySelector('.welcome-bg-svg');
+    if (bg) {
+        const scrollPosition = window.scrollY;
+        bg.style.transform = `translateY(${scrollPosition * 0.5}px)`;
+    }
+});
+</script>
+{% endblock %}
