@@ -2,11 +2,18 @@
 
 <div align="center">
 
-![VLMPy Logo](https://raw.githubusercontent.com/JaviLendi/VLMPy/main/docs/img/icon.png) <!-- Cambia la URL si tienes un logo propio -->
-
-**Autor:** Javier Lendínez Castillo  
-**Tutor:** Héctor Gómez Cedenilla  
-**Fecha:** Junio de 2025
+<table>
+    <tr>
+        <td style="vertical-align: middle; width: 65px;">
+            <img src="img/icon.png" alt="VLMPy Logo" width="90"/>
+        </td>
+        <td style="vertical-align: top; padding-left: 20px;">
+            <strong>Autor:</strong> Javier Lendínez Castillo<br>
+            <strong>Tutor:</strong> Héctor Gómez Cedenilla<br>
+            <strong>Fecha:</strong> Junio de 2025
+        </td>
+    </tr>
+</table>
 
 </div>
 
