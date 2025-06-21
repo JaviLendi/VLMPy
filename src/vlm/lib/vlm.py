@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append('../')
 
-from TFG.vlm.VLMPy.lib.geometry import *
+from lib.geometry import *
 
 #from julia import Main as jl
 #jl.include("VLMPy\\lib\\julia\\vortex.jl")

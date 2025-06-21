@@ -1,4 +1,4 @@
-# VLMPy: Vortex Lattice Method
+# VLMPy: Vortex Lattice Method App
 
 <p align="center">
     <img src="docs/img/icon.svg" alt="VLMPy Logo" width="120"/>
@@ -21,7 +21,7 @@
 
 ## Table of Contents
 
-- [VLMPy: Vortex Lattice Method](#vlmpy-vortex-lattice-method)
+- [VLMPy: Vortex Lattice Method App](#vlmpy-vortex-lattice-method-app)
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Features](#features)
