@@ -1,0 +1,81 @@
+{
+ "version": "auto-py-to-exe-configuration_v1",
+ "pyinstallerOptions": [
+  {
+   "optionDest": "noconfirm",
+   "value": true
+  },
+  {
+   "optionDest": "filenames",
+   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm/app.py"
+  },
+  {
+   "optionDest": "onefile",
+   "value": true
+  },
+  {
+   "optionDest": "console",
+   "value": false
+  },
+  {
+   "optionDest": "icon_file",
+   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/docs/img/icon.ico"
+  },
+  {
+   "optionDest": "name",
+   "value": "VLMPy"
+  },
+  {
+   "optionDest": "upx_dir",
+   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm"
+  },
+  {
+   "optionDest": "clean_build",
+   "value": true
+  },
+  {
+   "optionDest": "splash",
+   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/docs/img/icon.svg"
+  },
+  {
+   "optionDest": "strip",
+   "value": false
+  },
+  {
+   "optionDest": "noupx",
+   "value": false
+  },
+  {
+   "optionDest": "hide_console",
+   "value": "minimize-early"
+  },
+  {
+   "optionDest": "disable_windowed_traceback",
+   "value": false
+  },
+  {
+   "optionDest": "uac_admin",
+   "value": false
+  },
+  {
+   "optionDest": "uac_uiaccess",
+   "value": false
+  },
+  {
+   "optionDest": "argv_emulation",
+   "value": true
+  },
+  {
+   "optionDest": "bootloader_ignore_signals",
+   "value": false
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm;vlm/"
+  }
+ ],
+ "nonPyinstallerOptions": {
+  "increaseRecursionLimit": true,
+  "manualArguments": ""
+ }
+}
