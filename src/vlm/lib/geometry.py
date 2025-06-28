@@ -427,13 +427,12 @@ def curvature(self):
         hs = compute_surface_curvature([plane['horizontal_stabilizer']], hs_panels, n_hs, m_hs, is_symmetric=True)
         dz_dx_list = np.hstack((dz_dx_list, hs))
     if 'vertical_stabilizer' in plane:
-        n_hs = self.n_hs
-        m_hs = self.m_hs
-        num_vs_panels = n_hs * m_hs
-        vs_panels = panel_data[num_wing_panels + num_vs_panels:]
-        vs = compute_surface_curvature([plane['vertical_stabilizer']], vs_panels, n_hs, m_hs, is_symmetric=False, type='vs')
+        n_vs = self.n_vs
+        m_vs = self.m_vs
+        num_vs_panels = n_vs * m_vs
+        vs_panels = panel_data[num_wing_panels + num_hs_panels : num_wing_panels + num_hs_panels + num_vs_panels]
+        vs = compute_surface_curvature([plane['vertical_stabilizer']], vs_panels, n_vs, m_vs, is_symmetric=False, type='vs')
         dz_dx_list = np.hstack((dz_dx_list, vs))
-
     return dz_dx_list
 
 def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type='wing'):
