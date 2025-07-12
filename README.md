@@ -27,10 +27,13 @@
   - [Features](#features)
   - [Installation](#installation)
     - [Prerequisites](#prerequisites)
-    - [Steps](#steps)
-      - [Windows Executable (Windows 11 an 10)](#windows-executable-windows-11-an-10)
-  - [License](#license)
+    - [Option 1: Windows Executable (Windows 10/11)](#option-1-windows-executable-windows-1011)
+    - [Option 2: Install from Source](#option-2-install-from-source)
+  - [Usage](#usage)
+  - [Project Structure](#project-structure)
   - [Submitting Issues](#submitting-issues)
+  - [License](#license)
+  - [Author](#author)
   - [Acknowledgements](#acknowledgements)
 
 ---
@@ -43,12 +46,14 @@
 
 ## Features
 
-- Compute aerodynamic coefficients ($C_L$, $C_D$, moments) for various wing configurations.
-- Interactive 2D/3D visualization with Plotly.
-- Customizable wing geometry: sweep, dihedral, taper, control surfaces.
-- Analyze multiple flight conditions (angle of attack, sideslip, airspeed).
-- NACA airfoil generation and analysis.
-- Modular, extensible Python architecture.
+- **Accurate VLM Implementation**: Compute aerodynamic coefficients ($C_L$, $C_D$, moments) for wing configurations.
+- **Interactive Visualization**: 2D/3D plots of lift distribution, pressure coefficients, and geometry using Plotly and Matplotlib.
+- **Customizable Geometry**: Define wing parameters like sweep, dihedral, taper, and control surfaces.
+- **Flexible Flight Conditions**: Analyze multiple angles of attack, sideslip angles, and airspeeds.
+- **NACA Airfoil Support**: Generate and analyze NACA airfoil profiles.
+- **Modular Architecture**: Extensible Python codebase for custom analyses and integration with NumPy, Matplotlib, and more.
+- **User-Friendly Interface**: Intuitive Python API, ready-to-use executables, and Jupyter notebook examples.
+- **Comprehensive Documentation**: Step-by-step guides and practical examples.
 
 ---
 
@@ -56,38 +61,66 @@
 
 ### Prerequisites
 
-- Python 3.8+
-- Web browser (Chrome 90+, Firefox 85+, or equivalent)
+- **Python 3.8+** (for source installation)
+- **Web Browser** (Chrome 90+, Firefox 85+, or equivalent)
+- **Git** (optional, for cloning the repository)
+- 
+### Option 1: Windows Executable (Windows 10/11)
 
-### Steps
+1. Download `app.exe` from the [Releases page](https://github.com/JaviLendi/VLMPy/releases).
+2. Double-click to launch the application—no additional setup required.
+
+### Option 2: Install from Source
 
 1. Clone the repository:
-     ```bash
-     git clone https://github.com/JaviLendi/VLMPy.git
-     cd VLMPy
-     ```
+   ```bash
+   git clone https://github.com/JaviLendi/VLMPy.git
+   cd VLMPy
+   ```
 2. Install dependencies:
-     ```bash
-     pip install -r requirements.txt
-     ```
-     *Tip*: Update pip with `pip install --upgrade pip` if needed.
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *Tip*: Update pip with `pip install --upgrade pip` if needed.
 3. Run the app:
-     ```bash
-     python app.py
-     ```
-     Access at [http://localhost:5000](http://localhost:5000).
+   ```bash
+   python app.py
+   ```
+4. Access the web interface at [http://localhost:5000](http://localhost:5000).
 
-#### Windows Executable (Windows 11 an 10)
+---
+## Usage
 
-Download `app.exe` from the [Releases page](https://github.com/JaviLendi/VLMPy/releases) and double-click to launch.
+- **Executable**: Launch `app.exe` (Windows) for a standalone experience.
+- **Python API**: Import VLMPy modules in your scripts for custom analyses (see `src/lib/`).
+- **Jupyter Notebooks**: Explore example notebooks in the `notebooks/` directory for guided tutorials.
+- **Web Interface**: Run `app.py` to access the interactive web app at [http://localhost:5000](http://localhost:5000).
+
+Example scripts and documentation are available in the `notebooks/` and `docs/` directories.
 
 ---
 
-## License
+## Project Structure
 
-VLMPy is distributed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+```
+VLMPy/
+├── src/                  # Source code
+│   ├── lib/              # Core VLM and utility modules
+│   │   ├── vlm.py        # Vortex Lattice Method implementation
+│   │   ├── naca.py       # NACA airfoil generation utilities
+│   │   ├── geometry.py   # Wing geometry creation and manipulation
+│   ├── static/           # Static assets (images, data files)
+│   ├── templates/        # HTML templates for web interface
+│   └── app.py            # Application entry point
+├── notebooks/            # Example Jupyter notebooks
+├── docs/                 # Documentation and project reports
+├── requirements.txt      # Python dependencies
+├── README.md             # Project documentation
+└── LICENSE               # License information
+```
 
 ---
+
 
 ## Submitting Issues
 
@@ -101,11 +134,31 @@ Your feedback helps improve VLMPy!
 
 ---
 
+## License
+
+VLMPy is distributed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+
+---
+
+## Author
+
+**Javier Lendínez Castillo**  
+_Aerospace Engineer_
+
+- 💼 GitHub: [@JaviLendi](https://github.com/JaviLendi)
+- 🏫 Universidad Alfonso X el Sabio 
+
+---
+
+
 ## Acknowledgements
 
-- **Author:** Javier Lendínez Castillo
-- **Supervisor:** Héctor Gómez Cedenilla
-- **Date:** June 2025
+- **Supervisor**: Héctor Gómez Cedenilla
+- **Institution**: Universidad Alfonso X el Sabio
+- **Date**: June 2025
+
+- **Additional Acknowledgements**: Marcos Antonio Rodríguez and Ignacio Maroto Villar, professors at Universidad Alfonso X el Sabio
 
 > ℹ️ For academic details and mathematical derivations, see `docs/TFG.pdf` (coming soon) and source code appendices.
 
+---
