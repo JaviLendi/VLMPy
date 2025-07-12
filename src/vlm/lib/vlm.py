@@ -419,11 +419,11 @@ def plane(self):
     num_wing_panels = n * m
     num_hs_panels   = n_hs * m_hs
     num_vs_panels   = n_vs * m_vs
-
+    
     # Áreas por sub-superficie
     A_wing = panel_areas[:num_wing_panels]
     A_hs   = panel_areas[num_wing_panels:num_wing_panels + num_hs_panels]
-    A_vs   = panel_areas[num_wing_panels + num_vs_panels:]
+    A_vs   = panel_areas[num_wing_panels + num_hs_panels:num_wing_panels + num_hs_panels + num_vs_panels]
 
     # 5. Calcular lift y drag elementales por panel
     lift_per_panel = rho * u * gammas * panel_lengths    
@@ -493,7 +493,7 @@ def plane(self):
     # 13. VS: drag
     if n_vs != 0:
         drag_vs_vec = drag_per_panel[num_wing_panels + num_hs_panels:]
-        drag_sum_vs, drag_tot_vs, _ = coefs(drag_vs_vec, np.array(A_vs), n_hs, m_hs)
+        drag_sum_vs, drag_tot_vs, _ = coefs(drag_vs_vec, np.array(A_vs), n_vs, m_vs)
     else:
         drag_vs_vec = np.zeros(num_vs_panels)
         drag_sum_vs = np.zeros(n_vs)
@@ -514,7 +514,7 @@ def plane(self):
     else:
         CD_locals_hs = np.zeros(n_hs)
     if n_vs != 0:
-        _, _, CD_locals_vs   = coefs(drag_vs_vec, np.array(A_vs), n_hs, m_hs)
+        _, _, CD_locals_vs   = coefs(drag_vs_vec, np.array(A_vs), n_vs, m_vs)
     else:
         CD_locals_vs = np.zeros(n_vs)
     CD_locals_dict = {
@@ -1021,6 +1021,48 @@ def plot_coefficient_vs_alpha(fig, self, coefficient='CL', title=None):
         title=title,
         xaxis_title='Angle of Attack (degrees)',
         yaxis_title=f'{coefficient} Coefficient',
+        autosize=True,
+        showlegend=True
+    )
+
+    return fig
+
+def plot_CLCD_vs_alpha(fig, self, title=None):
+    """
+    Plot CL or CD vs angle of attack using precomputed results.
+    Calculates and displays the slope (pendiente) of the line (in radians).
+
+    Parameters:
+    - coefficient: 'CL' or 'CD'
+    - title: Optional title for the plot
+
+    Returns:
+    - fig: Plotly Figure object
+    """
+
+    x_deg = np.array(self.results['angles_deg'])
+    y1 = np.array(self.results['CL'])
+    y2 = np.array(self.results['CD'])
+    x_rad = np.radians(x_deg)
+
+
+    if title is None:
+        title = "CL/CD vs Angle of Attack"
+
+    fig.add_trace(go.Scatter(
+        x=y2,
+        y=y1,
+        mode='lines+markers',
+        name='CL/CD',
+        line=dict(color='blue'),
+        marker=dict(size=8)
+    ))
+
+
+    fig.update_layout(
+        title=title,
+        xaxis_title='Angle of Attack (degrees)',
+        yaxis_title='CL/CD',
         autosize=True,
         showlegend=True
     )

@@ -26,7 +26,7 @@ pio.kaleido.scope.default_format = "svg"
 # Ensure local module import
 import sys
 sys.path.append('../')
-from lib.vlm import VLM, plot_distribution_all, plot_wing_heatmap, plot_wing_heatmap_2d, plot_coefficient_vs_alpha, plot_distribution, plot_CL_CD
+from lib.vlm import VLM, plot_distribution_all, plot_wing_heatmap, plot_wing_heatmap_2d, plot_coefficient_vs_alpha, plot_distribution, plot_CL_CD, plot_CLCD_vs_alpha
 from lib.naca import plot_naca_airfoil, naca_csv
 from lib.geometry import plot_wing_geometry, plot_wing_geometry_2d, plot_wing_discretization_2d, plot_wing_discretization_3d
 
@@ -216,6 +216,7 @@ def plane():
             if data.getlist("horizontal_toggled[]") == ["1"]:
                 plane["horizontal_stabilizer"] = {
                     "x_translate": float(data.get("x_translate", 0.0)),
+                    "z_translate": float(data.get("z_translate", 0.0)),  
                     "NACA_root": data.get("NACA_root", ""),
                     "NACA_tip": data.get("NACA_tip", ""),
                     "chord_root": float(data.get("chord_root", 0.0)),
@@ -228,6 +229,7 @@ def plane():
             if data.getlist("vertical_toggled[]") == ["1"]:
                 plane["vertical_stabilizer"] = {
                     "x_translate": float(data.get("x_translate_v", 0.0)),
+                    "z_translate": float(data.get("z_translate_v", 0.0)),
                     "NACA_root": data.get("NACA_root_v", ""),
                     "NACA_tip": data.get("NACA_tip_v", ""),
                     "chord_root": float(data.get("chord_root_v", 0.0)),
@@ -618,6 +620,10 @@ def plot_data(plot_type):
             if vlm.results is None or 'CD' not in vlm.results:
                 return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
             fig = plot_coefficient_vs_alpha(fig, vlm, coefficient='CD')
+        elif plot_type == 'CL-CD-alpha':
+            if vlm.results is None or 'CD' not in vlm.results or 'CL' not in vlm.results:
+                return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
+            fig = plot_CLCD_vs_alpha(fig, vlm, title=None)
         elif plot_type == 'LiftSection':
             if 'n_section' in data:
                 try:
@@ -646,7 +652,7 @@ def plot_data(plot_type):
 if __name__ == "__main__":
     optimize_resources()
     try:
-        app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
-        # ui.run()
+        app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
+        #ui.run()
     finally:
         thread_pool.shutdown(wait=True)
