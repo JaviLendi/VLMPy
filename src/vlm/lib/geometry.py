@@ -21,7 +21,7 @@ def calculate_geometry(self):
     - surface_geometry: Dictionary with coordinates of leading edge, trailing edge, and quarter chord
     """
     plane = self.plane
-    def calculate_section_geometry(sections, alpha, is_symmetric, x_translate):
+    def calculate_section_geometry(sections, alpha, is_symmetric, x_translate, z_translate=0):
         print(f"alpha: {alpha}")
         # Initialize coordinate arrays for one side
         x_leading_edge = []
@@ -120,6 +120,11 @@ def calculate_geometry(self):
         x_trailing_edge += x_translate
         x_quarter_chord += x_translate
 
+        # Apply y-translation
+        z_leading_edge += z_translate
+        z_trailing_edge += z_translate
+        z_quarter_chord += z_translate
+
         # If symmetric, mirror across the x-z plane (y=0)
         if is_symmetric:
             x_leading_edge = np.concatenate((x_leading_edge[::-1], x_leading_edge))
@@ -146,15 +151,15 @@ def calculate_geometry(self):
     vs_geometry = 0
     if 'wing_sections' in plane:
         # Calculate geometry for wing sections
-        wing_geometry = calculate_section_geometry(plane['wing_sections'], self.alpha, is_symmetric=True, x_translate=0)
+        wing_geometry = calculate_section_geometry(plane['wing_sections'], self.alpha, is_symmetric=True, x_translate=0, z_translate=0)
     if 'horizontal_stabilizer' in plane:
         # Calculate geometry for horizontal stabilizer
         hs = plane['horizontal_stabilizer']
-        hs_geometry = calculate_section_geometry([hs], hs['alpha'], True, hs['x_translate'])
+        hs_geometry = calculate_section_geometry([hs], hs['alpha'], True, hs['x_translate'], hs['z_translate'])
     if 'vertical_stabilizer' in plane:
         # Calculate geometry for vertical stabilizer
         vs = plane['vertical_stabilizer']
-        vs_geometry = calculate_section_geometry([vs], vs['alpha'], False, vs['x_translate'])
+        vs_geometry = calculate_section_geometry([vs], vs['alpha'], False, vs['x_translate'], vs['z_translate'])
 
     return wing_geometry, hs_geometry, vs_geometry
 

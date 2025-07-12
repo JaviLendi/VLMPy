@@ -54,6 +54,10 @@
                         <input type="number" id="horizontal-stabilizer-x-translate" name="x_translate" value="{{ default_plane.horizontal_stabilizer.x_translate }}" step="any">
                     </div>
                     <div class="input-group">
+                        <label for="horizontal-stabilizer-x-translate">Z Translate (m):</label>
+                        <input type="number" id="horizontal-stabilizer-z-translate" name="z_translate" value="{{ default_plane.horizontal_stabilizer.z_translate }}" step="any">
+                    </div>
+                    <div class="input-group">
                         <label for="horizontal-stabilizer-naca-root">NACA Root:</label>
                         <input type="text" id="horizontal-stabilizer-naca-root" name="NACA_root" value="{{ default_plane.horizontal_stabilizer.NACA_root }}">
                     </div>
@@ -99,6 +103,10 @@
                     <div class="input-group">
                         <label for="vertical-stabilizer-x-translate">X Translate (m):</label>
                         <input type="number" id="vertical-stabilizer-x-translate" name="x_translate_v" value="{{ default_plane.vertical_stabilizer.x_translate }}" step="any">
+                    </div>
+                    <div class="input-group">
+                        <label for="vertical-stabilizer-x-translate">Z Translate (m):</label>
+                        <input type="number" id="vertical-stabilizer-z-translate" name="z_translate_v" value="{{ default_plane.vertical_stabilizer.z_translate }}" step="any">
                     </div>
                     <div class="input-group">
                         <label for="vertical-stabilizer-naca-root">NACA Root:</label>
@@ -343,6 +351,7 @@ function loadData(input) {
                     }
                     const h = p.horizontal_stabilizer;
                     document.getElementById('horizontal-stabilizer-x-translate').value = h.x_translate ?? '';
+                    document.getElementById('horizontal-stabilizer-y-translate').value = h.z_translate ?? '';
                     document.getElementById('horizontal-stabilizer-naca-root').value   = h.NACA_root   ?? '';
                     document.getElementById('horizontal-stabilizer-naca-tip').value    = h.NACA_tip    ?? '';
                     document.getElementById('horizontal-stabilizer-chord-root').value  = h.chord_root  ?? '';
@@ -360,6 +369,7 @@ function loadData(input) {
                     }
                     const v = p.vertical_stabilizer;
                     document.getElementById('vertical-stabilizer-x-translate').value = v.x_translate ?? '';
+                    document.getElementById('vertical-stabilizer-y-translate').value = v.z_translate ?? '';
                     document.getElementById('vertical-stabilizer-naca-root').value   = v.NACA_root   ?? '';
                     document.getElementById('vertical-stabilizer-naca-tip').value    = v.NACA_tip    ?? '';
                     document.getElementById('vertical-stabilizer-chord-root').value  = v.chord_root  ?? '';

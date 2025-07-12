@@ -17,6 +17,7 @@
     ],
     "horizontal_stabilizer": {
         "x_translate": 2,
+        "z_translate":0,
         "NACA_root": "3215",
         "NACA_tip": "3215",
         "chord_root": 0.5,
@@ -28,6 +29,7 @@
     },
     "vertical_stabilizer": {
         "x_translate": 2,
+        "z_translate":0,
         "NACA_root": "3215",
         "NACA_tip": "3215",
         "chord_root": 0.5,
