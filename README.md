@@ -61,53 +61,33 @@
 
 <div align="center">
 
-<!-- Gallery container -->
-<div style="max-width: 600px; margin: 0 auto;">
+| ![Welcome](docs/screenshots/APP/bienvenida.png) | ![Main Menu](docs/screenshots/APP/menu.png) |
+|:--:|:--:|
+| Welcome | Main Menu |
 
-<!-- Image display -->
-<img id="gallery-image" src="docs/screenshots/APP/bienvenida.png" alt="VLMPy Screenshot 1" style="width:100%; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: 0.3s;"/>
-
-<!-- Caption -->
-<p id="gallery-caption" style="font-size: 1rem; color: #555; margin: 0.5em 0 1em 0;">
-Bienvenida
-</p>
-
-<!-- Navigation buttons -->
-<button onclick="prevImage()" style="padding: 0.5em 1.2em; margin-right: 1em; border: none; background: #eee; border-radius: 5px; cursor: pointer;">&#8592; Prev</button>
-<button onclick="nextImage()" style="padding: 0.5em 1.2em; border: none; background: #eee; border-radius: 5px; cursor: pointer;">Next &#8594;</button>
+| ![Curvature](docs/screenshots/APP/curvatura.png) | ![3D Discretization](docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg) |
+|:--:|:--:|
+| Wing Curvature | 3D Wing Discretization (A320) |
 
 </div>
-
-</div>
-
-<!-- Gallery script (works on GitHub Pages, some Markdown renderers, and Jupyter) -->
-<script>
-const images = [
-   { src: "docs/screenshots/APP/bienvenida.png", caption: "Bienvenida" },
-   { src: "docs/screenshots/APP/menu.png", caption: "Menú principal" },
-   { src: "docs/screenshots/APP/curvatura.png", caption: "Curvatura del ala" },
-   { src: "docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg", caption: "Discretización 3D del ala (A320)" },
-   { src: "docs/screenshots/Placa%20plana%20con%20aleron/Gammas.svg", caption: "Distribución de vorticidad (Placa plana con alerón)" }
-];
-let idx = 0;
-function showImage(i) {
-   idx = (i + images.length) % images.length;
-   document.getElementById('gallery-image').src = images[idx].src;
-   document.getElementById('gallery-image').alt = images[idx].caption;
-   document.getElementById('gallery-caption').innerText = images[idx].caption;
-}
-function prevImage() { showImage(idx - 1); }
-function nextImage() { showImage(idx + 1); }
-</script>
 
 <details>
-<summary>Ver todas las capturas</summary>
+<summary>View all screenshots</summary>
 
-|   |   |
-|---|---|
-| ![Bienvenida](docs/screenshots/APP/bienvenida.png) | ![Menú principal](docs/screenshots/APP/menu.png) |
-| ![Curvatura](docs/screenshots/APP/curvatura.png) | ![Discretización 3D](docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg) |
-| ![Gammas](docs/screenshots/Placa%20plana%20con%20aleron/Gammas.svg) |   |
+- **Welcome**  
+   ![Welcome](docs/screenshots/APP/bienvenida.png)
+
+- **Main Menu**  
+   ![Main Menu](docs/screenshots/APP/menu.png)
+
+- **Wing Curvature**  
+   ![Curvature](docs/screenshots/APP/curvatura.png)
+
+- **3D Wing Discretization (A320)**  
+   ![3D Discretization](docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg)
+
+- **Vorticity Distribution (Flat Plate with Aileron)**  
+   ![Gammas](docs/screenshots/Placa%20plana%20con%20aleron/Gammas.svg)
 
 </details>
 
