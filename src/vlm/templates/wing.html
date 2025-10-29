@@ -7,34 +7,23 @@
             <!-- Flight Condition -->
             <section class="form-group">
                 <h3>Flight Condition</h3>
+                {% for field in [
+                    {"label": "Flight Velocity (m/s):", "id": "flight-velocity", "name": "u", "value": default_parameters.u, "step": "any"},
+                    {"label": "Air Density (kg/m³):", "id": "air-density", "name": "rho", "value": default_parameters.rho, "step": "0.001"},
+                    {"label": "Angle of Attack (degrees):", "id": "angle-of-attack", "name": "alpha", "value": default_parameters.alpha, "step": "0.1"},
+                    {"label": "Side Slip Angle (degrees):", "id": "side-slip-angle", "name": "beta", "value": default_parameters.beta, "step": "0.1"}
+                ] %}
                 <div class="input-group">
-                    <label for="flight-velocity">Flight Velocity (m/s):</label>
-                    <input type="number" id="flight-velocity" name="u" value="{{ default_parameters.u }}" step="any" required aria-required="true">
+                    <label for="{{ field.id }}">{{ field.label }}</label>
+                    <input type="number" id="{{ field.id }}" name="{{ field.name }}" value="{{ field.value }}" step="{{ field.step }}" required aria-required="true">
                 </div>
-                <div class="input-group">
-                    <label for="air-density">Air Density (kg/m³):</label>
-                    <input type="number" id="air-density" name="rho" value="{{ default_parameters.rho }}" step="0.001" required aria-required="true">
-                </div>
-                <div class="input-group">
-                    <label for="angle-of-attack">Angle of Attack (degrees):</label>
-                    <input type="number" id="angle-of-attack" name="alpha" value="{{ default_parameters.alpha }}" step="0.1" required aria-required="true">
-                </div>
-                <div class="input-group">
-                    <label for="side-slip-angle">Side Slip Angle (degrees):</label>
-                    <input type="number" id="side-slip-angle" name="beta" value="{{ default_parameters.beta }}" step="0.1" required aria-required="true">
-                </div>
+                {% endfor %}
             </section>
 
             <!-- Wing Geometry -->
             <section class="form-group">
                 <h3>Wing Geometry</h3>
-                <script>
-                    // Pass default_plane from Flask to JavaScript
-                    const defaultPlane = {{ default_plane | tojson }};
-                </script>
-                <div id="sections" aria-live="polite">
-                    <!-- Dynamically add section inputs via JavaScript -->
-                </div>
+                <div id="sections" aria-live="polite"></div>
                 <div class="button-group">
                     <button type="button" class="action-button" onclick="addSection()">Add Section</button>
                     <button type="button" class="action-button" onclick="removeSection()">Remove Section</button>
@@ -44,98 +33,55 @@
             <!-- Horizontal Stabilizer -->
             <section class="stabilizer-section">
                 <h3>Horizontal Stabilizer</h3>
-                <input type="hidden" name="horizontal_toggled[]" value='0'>
+                <input type="hidden" name="horizontal_toggled[]" value="0">
                 <button type="button" class="toggle-button" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
                     Toggle Horizontal Stabilizer
                 </button>
                 <div id="horizontal-stabilizer-section" class="form-group" style="display: none;">
+                    {% for field in [
+                        {"label": "X Translate (m):", "id": "horizontal-stabilizer-x-translate", "name": "x_translate", "type": "number", "value": default_plane.horizontal_stabilizer.x_translate, "step": "any"},
+                        {"label": "Z Translate (m):", "id": "horizontal-stabilizer-z-translate", "name": "z_translate", "type": "number", "value": default_plane.horizontal_stabilizer.z_translate, "step": "any"},
+                        {"label": "NACA Root:", "id": "horizontal-stabilizer-naca-root", "name": "NACA_root", "type": "text", "value": default_plane.horizontal_stabilizer.NACA_root},
+                        {"label": "NACA Tip:", "id": "horizontal-stabilizer-naca-tip", "name": "NACA_tip", "type": "text", "value": default_plane.horizontal_stabilizer.NACA_tip},
+                        {"label": "Chord Root (m):", "id": "horizontal-stabilizer-chord-root", "name": "chord_root", "type": "number", "value": default_plane.horizontal_stabilizer.chord_root, "step": "any"},
+                        {"label": "Chord Tip (m):", "id": "horizontal-stabilizer-chord-tip", "name": "chord_tip", "type": "number", "value": default_plane.horizontal_stabilizer.chord_tip, "step": "any"},
+                        {"label": "Span Fraction:", "id": "horizontal-stabilizer-span-fraction", "name": "span_fraction", "type": "number", "value": default_plane.horizontal_stabilizer.span_fraction, "step": "any"},
+                        {"label": "Sweep (degrees):", "id": "horizontal-stabilizer-sweep", "name": "sweep", "type": "number", "value": default_plane.horizontal_stabilizer.sweep, "step": "any"},
+                        {"label": "Dihedral (degrees):", "id": "horizontal-stabilizer-dihedral", "name": "htp_dihedral", "type": "number", "value": default_plane.horizontal_stabilizer.dihedral, "step": "any"},
+                        {"label": "Alpha (degrees):", "id": "horizontal-stabilizer-alpha", "name": "htp_alpha", "type": "number", "value": default_plane.horizontal_stabilizer.alpha, "step": "any"}
+                    ] %}
                     <div class="input-group">
-                        <label for="horizontal-stabilizer-x-translate">X Translate (m):</label>
-                        <input type="number" id="horizontal-stabilizer-x-translate" name="x_translate" value="{{ default_plane.horizontal_stabilizer.x_translate }}" step="any">
+                        <label for="{{ field.id }}">{{ field.label }}</label>
+                        <input type="{{ field.type }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.step %}step="{{ field.step }}"{% endif %}>
                     </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-x-translate">Z Translate (m):</label>
-                        <input type="number" id="horizontal-stabilizer-z-translate" name="z_translate" value="{{ default_plane.horizontal_stabilizer.z_translate }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-naca-root">NACA Root:</label>
-                        <input type="text" id="horizontal-stabilizer-naca-root" name="NACA_root" value="{{ default_plane.horizontal_stabilizer.NACA_root }}">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-naca-tip">NACA Tip:</label>
-                        <input type="text" id="horizontal-stabilizer-naca-tip" name="NACA_tip" value="{{ default_plane.horizontal_stabilizer.NACA_tip }}">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-chord-root">Chord Root (m):</label>
-                        <input type="number" id="horizontal-stabilizer-chord-root" name="chord_root" value="{{ default_plane.horizontal_stabilizer.chord_root }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-chord-tip">Chord Tip (m):</label>
-                        <input type="number" id="horizontal-stabilizer-chord-tip" name="chord_tip" value="{{ default_plane.horizontal_stabilizer.chord_tip }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-span-fraction">Span Fraction:</label>
-                        <input type="number" id="horizontal-stabilizer-span-fraction" name="span_fraction" value="{{ default_plane.horizontal_stabilizer.span_fraction }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-sweep">Sweep (degrees):</label>
-                        <input type="number" id="horizontal-stabilizer-sweep" name="sweep" value="{{ default_plane.horizontal_stabilizer.sweep }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-dihedral">Dihedral (degrees):</label>
-                        <input type="number" id="horizontal-stabilizer-dihedral" name="htp_dihedral" value="{{ default_plane.horizontal_stabilizer.dihedral }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="horizontal-stabilizer-alpha">Alpha (degrees):</label>
-                        <input type="number" id="horizontal-stabilizer-alpha" name="htp_alpha" value="{{ default_plane.horizontal_stabilizer.alpha }}" step="any">
-                    </div>
+                    {% endfor %}
                 </div>
             </section>
 
             <!-- Vertical Stabilizer -->
             <section class="stabilizer-section">
                 <h3>Vertical Stabilizer</h3>
-                <input type="hidden" name="vertical_toggled[]" value='0'>
-                <button type="button" class="toggle-button" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')"  aria-expanded="false" aria-controls="vertical-stabilizer-section">
+                <input type="hidden" name="vertical_toggled[]" value="0">
+                <button type="button" class="toggle-button" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
                     Toggle Vertical Stabilizer
                 </button>
                 <div id="vertical-stabilizer-section" class="form-group" style="display: none;">
+                    {% for field in [
+                        {"label": "X Translate (m):", "id": "vertical-stabilizer-x-translate", "name": "x_translate_v", "type": "number", "value": default_plane.vertical_stabilizer.x_translate, "step": "any"},
+                        {"label": "Z Translate (m):", "id": "vertical-stabilizer-z-translate", "name": "z_translate_v", "type": "number", "value": default_plane.vertical_stabilizer.z_translate, "step": "any"},
+                        {"label": "NACA Root:", "id": "vertical-stabilizer-naca-root", "name": "NACA_root_v", "type": "text", "value": default_plane.vertical_stabilizer.NACA_root},
+                        {"label": "NACA Tip:", "id": "vertical-stabilizer-naca-tip", "name": "NACA_tip_v", "type": "text", "value": default_plane.vertical_stabilizer.NACA_tip},
+                        {"label": "Chord Root (m):", "id": "vertical-stabilizer-chord-root", "name": "chord_root_v", "type": "number", "value": default_plane.vertical_stabilizer.chord_root, "step": "any"},
+                        {"label": "Chord Tip (m):", "id": "vertical-stabilizer-chord-tip", "name": "chord_tip_v", "type": "number", "value": default_plane.vertical_stabilizer.chord_tip, "step": "any"},
+                        {"label": "Span Fraction:", "id": "vertical-stabilizer-span-fraction", "name": "span_fraction_v", "type": "number", "value": default_plane.vertical_stabilizer.span_fraction, "step": "any"},
+                        {"label": "Sweep (degrees):", "id": "vertical-stabilizer-sweep", "name": "sweep_v", "type": "number", "value": default_plane.vertical_stabilizer.sweep, "step": "any"},
+                        {"label": "Alpha (degrees):", "id": "vertical-stabilizer-alpha", "name": "alpha_v", "type": "number", "value": default_plane.vertical_stabilizer.alpha, "step": "any"}
+                    ] %}
                     <div class="input-group">
-                        <label for="vertical-stabilizer-x-translate">X Translate (m):</label>
-                        <input type="number" id="vertical-stabilizer-x-translate" name="x_translate_v" value="{{ default_plane.vertical_stabilizer.x_translate }}" step="any">
+                        <label for="{{ field.id }}">{{ field.label }}</label>
+                        <input type="{{ field.type }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.step %}step="{{ field.step }}"{% endif %}>
                     </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-x-translate">Z Translate (m):</label>
-                        <input type="number" id="vertical-stabilizer-z-translate" name="z_translate_v" value="{{ default_plane.vertical_stabilizer.z_translate }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-naca-root">NACA Root:</label>
-                        <input type="text" id="vertical-stabilizer-naca-root" name="NACA_root_v" value="{{ default_plane.vertical_stabilizer.NACA_root }}">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-naca-tip">NACA Tip:</label>
-                        <input type="text" id="vertical-stabilizer-naca-tip" name="NACA_tip_v" value="{{ default_plane.vertical_stabilizer.NACA_tip }}">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-chord-root">Chord Root (m):</label>
-                        <input type="number" id="vertical-stabilizer-chord-root" name="chord_root_v" value="{{ default_plane.vertical_stabilizer.chord_root }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-chord-tip">Chord Tip (m):</label>
-                        <input type="number" id="vertical-stabilizer-chord-tip" name="chord_tip_v" value="{{ default_plane.vertical_stabilizer.chord_tip }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-span-fraction">Span Fraction:</label>
-                        <input type="number" id="vertical-stabilizer-span-fraction" name="span_fraction_v" value="{{ default_plane.vertical_stabilizer.span_fraction }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-sweep">Sweep (degrees):</label>
-                        <input type="number" id="vertical-stabilizer-sweep" name="sweep_v" value="{{ default_plane.vertical_stabilizer.sweep }}" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label for="vertical-stabilizer-alpha">Alpha (degrees):</label>
-                        <input type="number" id="vertical-stabilizer-alpha" name="alpha_v" value="{{ default_plane.vertical_stabilizer.alpha }}" step="any">
-                    </div>
+                    {% endfor %}
                 </div>
             </section>
 
@@ -161,22 +107,20 @@
                 <button type="button" class="action-button" onclick="plotData('/plot/discretization3D', 'Wing_Discretization3d')">Discretization 3D</button>
             </div>
             <div class="buttons">
-                <button type="button" class="action-button" onclick="savePlane()">Save</button>
-                <button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
+                <button type="button" class="action-button" onclick="savePlaneAdvanced()">Save</button>
+                <button type="button" class="action-button" onclick="loadPlaneAdvanced()">Load</button>
                 <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
         </form>
     </div>
     <div id="plot-area" aria-live="polite"></div>
-    <div id="message-container"></div>
 </div>
 
 <script>
-function getFormDataAsJson(formId) {
-    const form = document.getElementById(formId);
-    return JSON.stringify(Object.fromEntries(new FormData(form)));
-}
+
+// Pass default plane from Flask to JavaScript
+const defaultPlane = {{ default_plane | tojson }};
 
 function plotData(endpoint, filename) {
     const form = document.getElementById("wing-form");
@@ -192,6 +136,12 @@ function plotData(endpoint, filename) {
     .then(response => response.json())
     .then(data => {
         if (data.plot) {
+            // Remove the specific message from plot-area if present
+            const plotArea = document.getElementById('plot-area');
+            const unwantedMsg = plotArea.querySelector('p[style*="New plane configuration loaded"]');
+            if (unwantedMsg) {
+                unwantedMsg.remove();
+            }
             Plotly.newPlot("plot-area", JSON.parse(data.plot));
         } else {
             console.error("No plot data received");
@@ -200,251 +150,237 @@ function plotData(endpoint, filename) {
     .catch(error => console.error("Error generating plot:", error));
 }
 
-function savePlane() {
-    const messageContainer = document.querySelector('#message-container');
-    
-    function showMessage(text, type) {
-        if (!messageContainer) {
-            console.error("Message container not found");
-            return;
-        }
-        const existingMessages = messageContainer.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
-        
-        const message = document.createElement('div');
-        message.className = `message ${type}`;
-        message.textContent = text;
-        messageContainer.appendChild(message);
-        
-        setTimeout(() => {
-            message.remove();
-        }, 5000);
-    }
-
-    fetch("/save_plane", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: getFormDataAsJson("wing-form")
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => {
-                throw new Error(err.message || "Network response was not ok.");
-            });
-        }
-        return response.blob().then(blob => ({ blob, filename: "plane_config.json" }));
-    })
-    .then(({ blob, filename }) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        showMessage("Plane configuration saved successfully.", 'success');
-    })
-    .catch(error => {
-        console.error("Error saving plane:", error);
-        showMessage(`Error: ${error.message}`, 'error');
-    });
-}
+// Read file as text
+const readFileAsText = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+});
 
 function loadData(input) {
-    const messageContainer = document.querySelector('#message-container');
-    
-    function showMessage(text, type) {
-        if (!messageContainer) {
-            console.error("Message container not found");
-            return;
-        }
-        // clear old messages
-        messageContainer.innerHTML = '';
-        const message = document.createElement('div');
-        message.className = `message ${type}`;
-        message.textContent = text;
-        messageContainer.appendChild(message);
-        setTimeout(() => message.remove(), 5000);
-    }
-
     const file = input.files[0];
-    if (!file) {
-        return showMessage("No file selected.", 'error');
-    }
-    if (!file.name.endsWith('.json')) {
-        return showMessage("Please select a JSON file.", 'error');
-    }
-
+    if (!file) return window.messageCenter.error("No file selected.");
+    if (!file.name.endsWith('.json')) return window.messageCenter.error("Please select a JSON file.");
     const reader = new FileReader();
-    reader.onload = function(event) {
+    reader.onload = e => {
         try {
-            const plane = JSON.parse(event.target.result);
-
-            fetch('/load_plane', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(plane)
-            })
-            .then(r => {
-                if (!r.ok) {
-                    return r.json().then(err => { throw new Error(err.message) });
+            const config = JSON.parse(e.target.result);
+            if (typeof populateFormWithConfig === 'function') {
+                if (populateFormWithConfig(config)) {
+                    window.messageCenter.success('New plane configuration loaded - previous results cleared.');
+                    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">New config loaded. Previous results cleared.</p>';
+                } else {
+                    window.messageCenter.error('Error populating form with configuration data.');
                 }
-                return r.json();
-            })
-            .then(data => {
-                if (data.status !== 'success' || !data.plane) {
-                    throw new Error(data.message || 'No plane data returned');
-                }
-                const p = data.plane;
-
-                // flight conditions
-                ['u','rho','alpha','beta'].forEach(key => {
-                    const el = document.getElementById({
-                        u: 'flight-velocity',
-                        rho: 'air-density',
-                        alpha: 'angle-of-attack',
-                        beta: 'side-slip-angle',
-                    }[key]);
-                    if (el) el.value = p[key] ?? '';
-                });
-
-                // discretization
-                document.getElementById('panels-span').value  = p.n ?? '';
-                document.getElementById('panels-chord').value = p.m ?? '';
-
-                // sections
-                const sectionsContainer = document.getElementById('sections');
-                sectionsContainer.innerHTML = '';
-                (p.wing_sections || []).forEach(section => {
-                    addSection();
-                    const div = sectionsContainer.lastElementChild;
-
-                    // basic section props
-                    div.querySelector('input[name="chord_root[]"]').value    = section.chord_root    ?? '';
-                    div.querySelector('input[name="chord_tip[]"]').value     = section.chord_tip     ?? '';
-                    div.querySelector('input[name="span_fraction[]"]').value = section.span_fraction ?? '';
-                    div.querySelector('input[name="sweep[]"]').value         = section.sweep         ?? '';
-                    div.querySelector('input[name="dihedral[]"]').value      = section.dihedral      ?? '';
-                    div.querySelector('input[name="angle-of-attack[]"]').value = section.alpha        ?? '';
-                    div.querySelector('input[name="naca_root[]"]').value      = section.NACA_root     ?? '';
-                    div.querySelector('input[name="naca_tip[]"]').value       = section.NACA_tip      ?? '';
-
-                    // flap if present
-                    if (section.flap_start != null) {
-                        const btn = div.querySelector('.toggle-button');
-                        if (btn && !div.classList.contains('flap-open')) {
-                            toggleFlap(btn);
-                        }
-                        div.querySelector('input[name="flap_start[]"]').value        = section.flap_start        ?? '';
-                        div.querySelector('input[name="flap_end[]"]').value          = section.flap_end          ?? '';
-                        div.querySelector('input[name="flap_hinge_chord[]"]').value  = section.flap_hinge_chord  ?? '';
-                        div.querySelector('input[name="deflection_angle[]"]').value  = section.deflection_angle  ?? '';
-                        div.querySelector('input[name="deflection_type[]"]').value   = section.deflection_type   ?? '';
-                    }
-                });
-
-                // horizontal stabilizer
-                if (p.horizontal_stabilizer) {
-                    if (p.horizontal_toggled === '1') {
-                        toggleSection('horizontal-stabilizer-section','[aria-controls=horizontal-stabilizer-section]');
-                    }
-                    const h = p.horizontal_stabilizer;
-                    document.getElementById('horizontal-stabilizer-x-translate').value = h.x_translate ?? '';
-                    document.getElementById('horizontal-stabilizer-y-translate').value = h.z_translate ?? '';
-                    document.getElementById('horizontal-stabilizer-naca-root').value   = h.NACA_root   ?? '';
-                    document.getElementById('horizontal-stabilizer-naca-tip').value    = h.NACA_tip    ?? '';
-                    document.getElementById('horizontal-stabilizer-chord-root').value  = h.chord_root  ?? '';
-                    document.getElementById('horizontal-stabilizer-chord-tip').value   = h.chord_tip   ?? '';
-                    document.getElementById('horizontal-stabilizer-span-fraction').value = h.span_fraction ?? '';
-                    document.getElementById('horizontal-stabilizer-sweep').value       = h.sweep       ?? '';
-                    document.getElementById('horizontal-stabilizer-alpha').value       = h.alpha       ?? '';
-                    document.getElementById('horizontal-stabilizer-dihedral').value    = h.dihedral    ?? '';
-                }
-
-                // vertical stabilizer
-                if (p.vertical_stabilizer) {
-                    if (p.vertical_toggled === '1') {
-                        toggleSection('vertical-stabilizer-section','[aria-controls=vertical-stabilizer-section]');
-                    }
-                    const v = p.vertical_stabilizer;
-                    document.getElementById('vertical-stabilizer-x-translate').value = v.x_translate ?? '';
-                    document.getElementById('vertical-stabilizer-y-translate').value = v.z_translate ?? '';
-                    document.getElementById('vertical-stabilizer-naca-root').value   = v.NACA_root   ?? '';
-                    document.getElementById('vertical-stabilizer-naca-tip').value    = v.NACA_tip    ?? '';
-                    document.getElementById('vertical-stabilizer-chord-root').value  = v.chord_root  ?? '';
-                    document.getElementById('vertical-stabilizer-chord-tip').value   = v.chord_tip   ?? '';
-                    document.getElementById('vertical-stabilizer-span-fraction').value = v.span_fraction ?? '';
-                    document.getElementById('vertical-stabilizer-sweep').value       = v.sweep       ?? '';
-                    document.getElementById('vertical-stabilizer-alpha').value       = v.alpha       ?? '';
-                    document.getElementById('vertical-stabilizer-dihedral').value    = v.dihedral    ?? '';
-                }
-
-                showMessage("Plane configuration loaded successfully.", 'success');
-            })
-            .catch(err => {
-                console.error(err);
-                showMessage(`Error: ${err.message}`, 'error');
-            });
-
-        } catch (err) {
-            console.error(err);
-            showMessage('Error: Invalid JSON file.', 'error');
+            } else {
+                fetch('/loadplane', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                })
+                .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.message); }))
+                .then(d => {
+                    if (d.status === 'success' && d.plane && typeof populateFormWithConfig === 'function') {
+                        populateFormWithConfig(d.plane);
+                        window.messageCenter.success('New plane configuration loaded - previous results cleared.');
+                        document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Config loaded. Click "Calculate" for new results.</p>';
+                    } else throw new Error(d.message || 'No plane data returned');
+                })
+                .catch(e => window.messageCenter.error(`Error loading plane: ${e.message}`));
+            }
+        } catch {
+            window.messageCenter.error('Error: Invalid JSON file.');
         }
     };
-    reader.onerror = function() {
-        console.error(reader.error);
-        showMessage('Error: Unable to read file.', 'error');
-    };
+    reader.onerror = () => window.messageCenter.error('Error: Unable to read file.');
     reader.readAsText(file);
 }
 
-
 function erasePlot() {
     Plotly.purge("plot-area");
+    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Plot area cleared. Click "Calculate" to generate new results.</p>';
 }
 
-// Add event listener for Enter key to trigger Calculate and View Planform
-document.addEventListener('keydown', function(event) {
+const radToDeg = r => (r == null ? r : r * 57.29577951308232);
+
+function convertAngleIfNeeded(value, isAngle = false) {
+    if (!isAngle || value == null) return value;
+    return Math.abs(value) <= 6.28 ? radToDeg(value) : value;
+}
+
+ // ===== MAIN FUNCTION WITH ANGLE CONVERSION =====
+function populateFormWithConfig(config) {
+    try {
+        // === FLIGHT PARAMETERS ===
+        [
+            { id: 'flight-velocity', val: config.flight_parameters?.u },
+            { id: 'air-density', val: config.flight_parameters?.rho },
+            { id: 'angle-of-attack', val: convertAngleIfNeeded(config.flight_parameters?.alpha, true) },
+            { id: 'side-slip-angle', val: convertAngleIfNeeded(config.flight_parameters?.beta, true) }
+        ].forEach(({ id, val }) => {
+            const el = document.getElementById(id);
+            if (el && val != null) el.value = val;
+        });
+
+        // === DISCRETIZATION ===
+        [
+            { id: 'panels-span', val: config.flight_parameters?.n },
+            { id: 'panels-chord', val: config.flight_parameters?.m }
+        ].forEach(({ id, val }) => {
+            const el = document.getElementById(id);
+            if (el && val != null) el.value = val;
+        });
+
+        // === WING SECTIONS ===
+        const wingSections = config.wing_sections;
+        if (Array.isArray(wingSections) && wingSections.length) {
+            const container = document.getElementById('sections');
+            if (container) container.innerHTML = '';
+            for (let i = 0; i < wingSections.length; i++) {
+                if (typeof addSection === 'function') addSection();
+                else return false;
+            }
+            setTimeout(() => populateSectionsDataWithAngles(wingSections), 200);
+        }
+
+        // === STABILIZERS ===
+        const hsData = config.horizontal_stabilizer;
+        if (hsData) {
+            const hsSection = document.getElementById('horizontal-stabilizer-section');
+            if (hsSection && hsSection.style.display === 'none')
+                toggleSection('horizontal-stabilizer-section', '[aria-controls="horizontal-stabilizer-section"]');
+            setTimeout(() => populateHorizontalStabilizerDataWithAngles(hsData), 250);
+        }
+        else { // Ensure section is hidden if no data
+            const hsSection = document.getElementById('horizontal-stabilizer-section');
+            if (hsSection && hsSection.style.display !== 'none')
+                toggleSection('horizontal-stabilizer-section', '[aria-controls="horizontal-stabilizer-section"]');
+        }
+
+        const vsData = config.vertical_stabilizer;
+        if (vsData) {
+            const vsSection = document.getElementById('vertical-stabilizer-section');
+            if (vsSection && vsSection.style.display === 'none')
+                toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
+            setTimeout(() => populateVerticalStabilizerDataWithAngles(vsData), 300);
+        }
+        else { // Ensure section is hidden if no data
+            const vsSection = document.getElementById('vertical-stabilizer-section');
+            if (vsSection && vsSection.style.display !== 'none')
+                toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Error populating form:", error);
+        return false;
+    }
+}
+
+// ===== AUXILIAR FUNCTION FOR WING SECTIONS WITH ANGLE CONVERSION =====
+function populateSectionsDataWithAngles(wingSections) {
+    const sectionsContainer = document.getElementById('sections');
+    if (!sectionsContainer) return console.error("❌ Sections container not found");
+
+    const sectionDivs = sectionsContainer.children;
+    wingSections.forEach((section, idx) => {
+        const sectionDiv = sectionDivs[idx];
+        if (!sectionDiv) return;
+
+        // Main Section Fields
+        [
+            ['chord_root[]', section.chord_root ?? section.chordroot],
+            ['chord_tip[]', section.chord_tip ?? section.chordtip],
+            ['span_fraction[]', section.span_fraction ?? section.spanfraction],
+            ['sweep[]', convertAngleIfNeeded(section.sweep, true)],
+            ['dihedral[]', convertAngleIfNeeded(section.dihedral, true)],
+            ['naca_root[]', section.NACA_root ?? section.NACAroot ?? section.naca_root],
+            ['naca_tip[]', section.NACA_tip ?? section.NACAtip ?? section.naca_tip]
+        ].forEach(([name, value]) => {
+            const input = sectionDiv.querySelector(`input[name="${name}"]`);
+            if (input && value != null) input.value = value;
+        });
+
+        // Flap
+        const flapStart = section.flap_start ?? section.flapstart;
+        if (flapStart != null) {
+            const sectionNumber = idx + 1;
+            const flapToggleButton = sectionDiv.querySelector(`#aileron-${sectionNumber}`);
+            const flapParams = sectionDiv.querySelector('.flap-params');
+            if (flapToggleButton && flapParams && flapParams.style.display === 'none') toggleFlap(flapToggleButton);
+
+            setTimeout(() => {
+                [
+                    ['flap_start[]', section.flap_start ?? section.flapstart],
+                    ['flap_end[]', section.flap_end ?? section.flapend],
+                    ['flap_hinge_chord[]', section.flap_hinge_chord ?? section.flaphingechord],
+                    ['deflection_angle[]', convertAngleIfNeeded(section.deflection_angle ?? section.deflectionangle, true)],
+                    ['deflection_type[]', section.deflection_type ?? section.deflectiontype]
+                ].forEach(([name, value]) => {
+                    let input = flapParams?.querySelector(`input[name="${name}"]`) || flapParams?.querySelector(`select[name="${name}"]`);
+                    if (input && value != null) input.value = value;
+                });
+            }, 100);
+        }
+    });
+}
+
+// ===== STABILIZER POPULATION WITH ANGLE CONVERSION =====
+function populateStabilizerDataWithAngles(data, prefix, fields) {
+    fields.forEach(([suffix, key, isAngle]) => {
+        const id = `${prefix}-${suffix}`;
+        let value = data[key];
+        if (isAngle) value = convertAngleIfNeeded(value, true);
+        const element = document.getElementById(id);
+        if (element && value != null) element.value = value;
+    });
+}
+
+function populateHorizontalStabilizerDataWithAngles(hsData) {
+    populateStabilizerDataWithAngles(hsData, 'horizontal-stabilizer', [
+        ['x-translate', 'x_translate', false],
+        ['z-translate', 'z_translate', false],
+        ['naca-root', 'NACA_root', false],
+        ['naca-tip', 'NACA_tip', false],
+        ['chord-root', 'chord_root', false],
+        ['chord-tip', 'chord_tip', false],
+        ['span-fraction', 'span_fraction', false],
+        ['sweep', 'sweep', true],
+        ['alpha', 'alpha', true],
+        ['dihedral', 'dihedral', true]
+    ]);
+}
+
+function populateVerticalStabilizerDataWithAngles(vsData) {
+    populateStabilizerDataWithAngles(vsData, 'vertical-stabilizer', [
+        ['x-translate', 'x_translate', false],
+        ['z-translate', 'z_translate', false],
+        ['naca-root', 'NACA_root', false],
+        ['naca-tip', 'NACA_tip', false],
+        ['chord-root', 'chord_root', false],
+        ['chord-tip', 'chord_tip', false],
+        ['span-fraction', 'span_fraction', false],
+        ['sweep', 'sweep', true],
+        ['alpha', 'alpha', true],
+        ['dihedral', 'dihedral', true]
+    ]);
+}
+
+// Optimize Enter key event to trigger Calculate and Planform only if focused in form
+document.getElementById('wing-form').addEventListener('keydown', function(event) {
     if (event.key === 'Enter') {
         event.preventDefault();
-        const calculateButton = document.getElementById('calculate-button');
-        if (calculateButton) {
-            calculateButton.click();
-        }
-        const viewPlanformButton = document.getElementById('view-planform-button');
-        if (viewPlanformButton) {
-            viewPlanformButton.click();
-        }
+        document.getElementById('calculate-button')?.click();
+        document.getElementById('view-planform-button')?.click();
     }
 });
 
-document.getElementById('save-plane-btn').onclick = async () => {
-    const res = await fetch('/save_plane', { method:'POST' });
-    const { filename } = await res.json();
-    alert('Saved as ' + filename);
-  };
-
-document.getElementById('load-plane-btn').onclick = async () => {
-    const filename = prompt('Filename to load:');
-    if (!filename) return;
-    const res = await fetch('/load_plane', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ filename })
-    });
-    const data = await res.json();
-    if (data.status === 'success') {
-        const plane = data.plane;
-        // loop through keys and set inputs with matching IDs
-        for (let k in plane) {
-        const el = document.getElementById(k);
-        if (el) el.value = plane[k];
-        }
-        alert('Loaded ' + filename);
-    } else {
-        alert('Error: ' + data.message);
+// DOM initialization and default plane population
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.defaultPlane) {
+        populateFormWithConfig(window.defaultPlane);
     }
-};
+});
 </script>
 {% endblock %}

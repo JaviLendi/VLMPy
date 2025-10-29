@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', () => {
         menuToggle: document.getElementById('menu-toggle'),
         appearanceButtons: document.querySelectorAll('.appearance-btn'),
         plotArea: document.getElementById('plot-area'),
-        messageContainer: document.getElementById('message-container'),
         calculateSpinner: document.getElementById('calculate-spinner'),
         loadingSpinner: document.getElementById('loading-spinner')
     };
@@ -16,27 +15,38 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log(
         'Initializing script.js. Sidebar:', !!DOM.sidebar,
         'Menu toggle:', !!DOM.menuToggle,
-        'Appearance buttons found:', DOM.appearanceButtons.length
+        'Appearance buttons found:', DOM.appearanceButtons.length,
+        'MessageCenter available:', !!window.messageCenter
     );
 
+    // =================== APPEARANCE MODE MANAGEMENT ===================
     const sendAppearanceMode = (mode, effectiveMode) => {
         fetch('/set-appearance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ appearance_mode: mode, effective_mode: effectiveMode })
-        })
-            .then(resp => resp.json())
-            .then(data => {
-                console.log('[sendAppearanceMode] Server response:', data);
-                // The backend returns something like { template: "plotly_dark" } or not.
-                // We use that to toggle .dark-mode / .light-mode on <html>.
-                DOM.html.classList.toggle('dark-mode', data.template === 'plotly_dark');
-                DOM.html.classList.toggle('light-mode', data.template !== 'plotly_dark');
-
-                // Update which button is “active” based on the saved mode
-                updateButtonStates(mode);
+            body: JSON.stringify({ 
+                appearance_mode: mode, 
+                effective_mode: effectiveMode 
             })
-            .catch(err => console.error('[sendAppearanceMode] Error:', err));
+        })
+        .then(resp => resp.json())
+        .then(data => {
+            console.log('[sendAppearanceMode] Server response:', data);
+            
+            // Toggle theme classes based on server response
+            DOM.html.classList.toggle('dark-mode', data.template === 'plotly_dark');
+            DOM.html.classList.toggle('light-mode', data.template !== 'plotly_dark');
+            
+            // Update button states
+            updateButtonStates(mode);
+            
+        })
+        .catch(err => {
+            console.error('[sendAppearanceMode] Error:', err);
+            if (window.messageCenter) {
+                window.messageCenter.error('Failed to change theme');
+            }
+        });
     };
 
     const computeEffectiveMode = (mode) => {
@@ -78,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Make sure the correct button is highlighted on load
         updateButtonStates(savedMode);
 
-        // If the user’s OS theme toggles—and we’re in 'System'—re-send with new effective
+        // Listen for system theme changes when in 'System' mode
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
             if (localStorage.getItem('appearance-mode') === 'System') {
                 const newEffective = e.matches ? 'Dark' : 'Light';
@@ -87,10 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    wireUpButtons();
-    initAppearanceMode();
-
-    // Función para mostrar el spinner
+    // =================== LOADING SPINNER MANAGEMENT ===================
     const showLoadingSpinner = () => {
         if (DOM.loadingSpinner) {
             DOM.loadingSpinner.style.display = 'block';
@@ -100,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Función para ocultar el spinner
     const hideLoadingSpinner = () => {
         if (DOM.loadingSpinner) {
             DOM.loadingSpinner.style.display = 'none';
@@ -108,26 +114,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Evento para el enlace "Results"
-    const resultsLink = document.querySelector('a[href="/results"]');
+    // =================== NAVIGATION HANDLERS ===================
+    // Mostrar spinner al navegar a Results
+    const resultsLink = document.querySelector('a[href*="results"]');
     if (resultsLink) {
         resultsLink.addEventListener('click', (event) => {
             showLoadingSpinner();
-            // Optional: Delay navigation to make spinner visible
-            // event.preventDefault();
-            // setTimeout(() => {
-            //     window.location.href = resultsLink.href;
-            // }, 500);
+            if (window.messageCenter) {
+                window.messageCenter.info('Loading results...', 1500);
+            }
         });
     }
 
-    // Ocultar el spinner cuando la página esté completamente cargada
+    // Hide spinner when page is fully loaded
     window.addEventListener('load', () => {
         hideLoadingSpinner();
     });
 
-
-    // Plot data function
+    // =================== PLOT DATA FUNCTION ===================
     window.plotData = (endpoint, filename) => {
         if (!DOM.plotArea) {
             console.error('[plotData] Plot area not found.');
@@ -135,8 +139,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const nSectionInput = document.getElementById('n_section');
-        const data = {
-            n_section: nSectionInput ? nSectionInput.value : 1
+        const data = { 
+            n_section: nSectionInput ? nSectionInput.value : 1 
         };
 
         fetch(endpoint, {
@@ -144,33 +148,38 @@ document.addEventListener('DOMContentLoaded', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         })
-            .then(response => response.json())
-            .then(data => {
-                if (!DOM.messageContainer) return;
-
-                DOM.messageContainer.innerHTML = '';
-                if (data.status === 'error') {
-                    const msgError = document.createElement('p');
-                    msgError.classList.add('message', 'error');
-                    msgError.textContent = data.message;
-                    DOM.messageContainer.appendChild(msgError);
-                    return;
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'error') {
+                if (window.messageCenter) {
+                    window.messageCenter.error(data.message || 'Plot generation failed');
                 }
+                return;
+            }
 
-                const plotData = JSON.parse(data.plot);
-                const config = {
-                    displaylogo: false,
-                    modeBarButtonsToRemove: ['lasso2d'],
-                    displayModeBar: true,
-                    toImageButtonOptions: { filename, format: 'svg' }
-                };
+            // Parse and create plot
+            const plotData = JSON.parse(data.plot);
+            const config = {
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d'],
+                displayModeBar: true,
+                toImageButtonOptions: {
+                    filename,
+                    format: 'svg'
+                }
+            };
 
-                Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
-            })
-            .catch(error => console.error('[plotData] Error:', error));
+            Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
+        })
+        .catch(error => {
+            console.error('[plotData] Error:', error);
+            if (window.messageCenter) {
+                window.messageCenter.error(`Plot error: ${error.message}`);
+            }
+        });
     };
 
-    // Toggle sidebar
+    // =================== SIDEBAR TOGGLE ===================
     const toggleSidebar = () => {
         if (!DOM.menuToggle || !DOM.sidebar || !DOM.overlay) {
             console.error('Sidebar, overlay, or menu-toggle elements missing');
@@ -191,16 +200,32 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.menuToggle.setAttribute('aria-expanded', 'false');
             console.log('Sidebar closed via overlay');
         });
+
+        // Close sidebar on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && DOM.sidebar.getAttribute('aria-hidden') === 'false') {
+                DOM.sidebar.setAttribute('aria-hidden', 'true');
+                DOM.overlay.setAttribute('aria-hidden', 'true');
+                DOM.menuToggle.setAttribute('aria-expanded', 'false');
+                DOM.sidebar.classList.remove('open');
+                DOM.overlay.classList.remove('active');
+                console.log('Sidebar closed via Escape key');
+            }
+        });
     };
 
-    // Toggle section or flap
+    // =================== DYNAMIC SECTIONS MANAGEMENT ===================
     const toggleElement = (element, button, hiddenInput, isFlap = false) => {
         if (!button || !element || !hiddenInput) {
             console.error(`Toggle${isFlap ? 'Flap' : 'Section'}: Element, button, or hidden input not found`);
+            if (window.messageCenter) {
+                window.messageCenter.warning(`Toggle ${isFlap ? 'flap' : 'section'}: Required elements not found`);
+            }
             return;
         }
 
         const isHidden = element.style.display === 'none' || element.style.display === '';
+        
         element.style.display = isHidden ? 'block' : 'none';
         button.classList.toggle('is-toggled', isHidden);
         element.style.transition = `opacity ${isHidden ? 0.2 : 0.3}s ease`;
@@ -210,13 +235,16 @@ document.addEventListener('DOMContentLoaded', () => {
             element.style.opacity = isHidden ? '1' : '0';
             if (!isFlap) element.classList.toggle('visible', isHidden);
             button.disabled = false;
-            console.log(`${isFlap ? 'Flap' : 'Section'} ${isHidden ? 'shown' : 'hidden'}:`, button.id || element.id);
+            
+            console.log(`${isFlap ? 'Flap' : 'Section'} ${isHidden ? 'shown' : 'hidden'}:`, 
+                       button.id || element.id);
         }, isHidden ? 100 : 300);
 
-        button.setAttribute('aria-expanded', isHidden);
-        if (isFlap) button.setAttribute('aria-pressed', isHidden);
+        button.setAttribute('aria-expanded', isHidden.toString());
+        if (isFlap) button.setAttribute('aria-pressed', isHidden.toString());
     };
 
+    // Global toggle functions
     window.toggleFlap = (button) => {
         toggleElement(button.nextElementSibling, button, button.previousElementSibling, true);
     };
@@ -227,22 +255,27 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleElement(section, button, button.previousElementSibling);
     };
 
-    // Add wing section
+    // =================== WING SECTION MANAGEMENT ===================
     window.addSection = () => {
         const sections = document.getElementById('sections');
         if (!sections) {
             console.error('Sections container not found');
+            if (window.messageCenter) {
+                window.messageCenter.error('Cannot add section: container not found');
+            }
             return;
         }
 
         const sectionDiv = document.createElement('div');
-        sectionDiv.className = 'section';
+        sectionDiv.className = 'wing-section';
         sectionDiv.style.opacity = '0';
         const sectionNumber = sections.children.length + 1;
 
-        const defaultSection = (typeof defaultPlane !== 'undefined' && defaultPlane.wing_sections && defaultPlane.wing_sections.length > 0)
-            ? defaultPlane.wing_sections[0]
-            : {};
+        // Default values
+        const defaultSection = (typeof defaultPlane !== 'undefined' && 
+                               defaultPlane.wing_sections && 
+                               defaultPlane.wing_sections.length > 0) 
+            ? defaultPlane.wing_sections[0] : {};
 
         const defaults = {
             chord_root: defaultSection.chord_root || 1.0,
@@ -257,7 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
             flap_hinge_chord: defaultSection.flap_hinge_chord || 0.25,
             deflection_angle: defaultSection.deflection_angle || 20,
             deflection_type: defaultSection.deflection_type || 'symmetrical'
-
         };
 
         sectionDiv.innerHTML = `
@@ -265,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <label>Chord Root (m):</label>
             <input type="number" name="chord_root[]" step="0.1" required aria-required="true" value="${defaults.chord_root}" placeholder="e.g., 1.5">
             <label>Chord Tip (m):</label>
-            <input type="number" name="chord_tip[]" step="0.1" required aria-required="true" value="${defaults.chord_root}" placeholder="e.g., 0.8">
+            <input type="number" name="chord_tip[]" step="0.1" required aria-required="true" value="${defaults.chord_tip}" placeholder="e.g., 0.8">
             <label>Span Fraction (m):</label>
             <input type="number" name="span_fraction[]" step="any" required aria-required="true" value="${defaults.span_fraction}" placeholder="e.g., 0.25">
             <label>Sweep Angle (deg):</label>
@@ -293,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <option value="antisymmetrical">Antisymmetrical</option>
                 </select>
             </div>
-        `;
+        `;  
 
         sections.appendChild(sectionDiv);
         setTimeout(() => {
@@ -306,6 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
             newButton.addEventListener('click', () => toggleFlap(newButton));
         } else {
             console.error('Aileron button not found for section', sectionNumber);
+            window.messageCenter?.warning('Aileron button not found for new section');
         }
     };
 
@@ -326,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 300);
     };
 
-    // Handle form submission
+    // =================== FORM SUBMISSION HANDLERS - ACTUALIZADO ===================
     const handleFormSubmission = (form, endpoint, formName) => {
         if (!form) {
             console.error(`${formName} form not found`);
@@ -344,59 +377,56 @@ document.addEventListener('DOMContentLoaded', () => {
         })
             .then(response => response.json())
             .then(data => {
-                if (!DOM.messageContainer) {
-                    console.error('Message container not found');
-                    return;
-                }
-
-                DOM.messageContainer.innerHTML = '';
-                const messageElement = document.createElement('p');
-                messageElement.classList.add('message', data.status);
-                messageElement.textContent = data.message;
-                DOM.messageContainer.appendChild(messageElement);
                 console.log(`${formName} result:`, data.status, data.message);
+                window.messageCenter?.[data.status](`${data.message}`, 2000);
             })
             .catch(error => {
                 console.error(`Error during ${formName.toLowerCase()} calculation:`, error);
-                if (DOM.messageContainer && DOM.plotArea) {
-                    DOM.plotArea.innerHTML = `<p style="color: red;">Error: Failed to process request</p>`;
-                }
+                window.messageCenter?.error(`Calculation error: ${error.message}`);
                 throw error;
             });
     };
 
+    // Global calculation functions
     window.Calculate = () => {
         const wingForm = document.getElementById('wing-form');
-        handleFormSubmission(wingForm, '/wing', 'Wing');
+        handleFormSubmission(wingForm, '/wing', 'Wing')
     };
 
     window.CalculateAngles = () => {
         const analisisForm = document.getElementById('analisis-form');
         if (DOM.calculateSpinner) DOM.calculateSpinner.style.display = 'inline-block';
-        handleFormSubmission(analisisForm, '/angles', 'Analisis')
+        handleFormSubmission(analisisForm, '/angles', 'Angles Analysis')
             .finally(() => {
                 if (DOM.calculateSpinner) DOM.calculateSpinner.style.display = 'none';
             });
     };
 
+
+    // =================== INITIALIZATION ===================
     // Initialize flap-params visibility
     document.querySelectorAll('.flap-params').forEach(params => {
         params.style.opacity = '0';
         params.style.display = 'none';
     });
 
-    // Bind toggle buttons
+    // Bind existing toggle buttons
     document.querySelectorAll('.toggle-button').forEach(button => {
         button.addEventListener('click', () => {
             button.classList.toggle('is-toggled');
             button.setAttribute('aria-pressed', button.classList.contains('is-toggled'));
-            if (button.id?.startsWith('aileron-')) {
+            // Toggle flap parameters if it's a flap button
+            if (button.id?.startsWith('flap-') || button.id?.includes('aileron')) {
                 toggleFlap(button);
             }
         });
     });
 
-    // Initialize components
+    // Initialize all components
+    wireUpButtons();
     initAppearanceMode();
     toggleSidebar();
+
+    console.log('script.js initialization complete');
+    
 });

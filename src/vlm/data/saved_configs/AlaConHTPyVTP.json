@@ -1,0 +1,54 @@
+{
+  "wing_sections": [
+    {
+      "chord_root": 1.0,
+      "chord_tip": 1.0,
+      "span_fraction": 8.0,
+      "sweep": 0.5235987755982988,
+      "alpha": 0.0523598775598299,
+      "dihedral": 0.06981317007977318,
+      "NACA_root": "3215",
+      "NACA_tip": "1310"
+    }
+  ],
+  "horizontal_stabilizer": {
+    "x_translate": 2.0,
+    "z_translate": 0.0,
+    "NACA_root": "3215",
+    "NACA_tip": "3215",
+    "chord_root": 0.5,
+    "chord_tip": 0.5,
+    "span_fraction": 2.0,
+    "sweep": 0.5235987755982988,
+    "alpha": 0.0,
+    "dihedral": 0.0
+  },
+  "vertical_stabilizer": {
+    "x_translate": 2.0,
+    "z_translate": 0.0,
+    "NACA_root": "3215",
+    "NACA_tip": "3215",
+    "chord_root": 0.5,
+    "chord_tip": 0.5,
+    "span_fraction": 0.5,
+    "sweep": 0.5235987755982988,
+    "alpha": 0.0,
+    "dihedral": 1.5707963267948966
+  },
+  "flight_parameters": {
+    "u": 50.0,
+    "rho": 0.957,
+    "alpha": 0.0523598775598299,
+    "beta": 0.0,
+    "n": 120,
+    "m": 6
+  },
+  "name": "AlaConHTPyVTP",
+  "description": "AlaConHTPyVTP",
+  "metadata": {
+    "version": "1.0",
+    "created_at": "2025-09-30T19:21:11.742535",
+    "modified_at": "2025-09-30T19:21:11.742550",
+    "checksum": "f80bd8d3b2804929ccfbe25e9ceccb89"
+  }
+}

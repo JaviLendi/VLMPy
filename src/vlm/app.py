@@ -1,166 +1,226 @@
 import os
+# Limit BLAS/OMP threads early to avoid oversubscription on multi-core systems
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import json
-import pickle
 import logging
-from uuid import uuid4 
-import multiprocessing
+from uuid import uuid4
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
-import asyncio
-import aiofiles
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-import numpy as np
-import psutil
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
-from flask_compress import Compress
-from webui import WebUI
-import plotly.graph_objs as go
-import plotly.utils
-import plotly.io as pio
+# Third-party imports kept together; optional/possibly heavy imports guarded for clearer errors
+try:
+    import numpy as np
+except Exception as e:
+    raise ImportError("numpy is required for this application") from e
+
+try:
+    import psutil
+except Exception:
+    # psutil is useful but optional for resource tuning; fall back gracefully
+    psutil = None
+
+try:
+    from flask import (
+        Flask, render_template, request, jsonify, session,
+        redirect, url_for, send_file
+    )
+except Exception as e:
+    raise ImportError("Flask is required for this application") from e
+
+# Compression and UI are optional; provide informative fallbacks
+try:
+    from flask_compress import Compress
+except Exception:
+    Compress = None
+
+try:
+    from webui import WebUI
+except Exception:
+    WebUI = None
+
+# Plotly imports; raise clear error if missing
+try:
+    import plotly.graph_objs as go
+    import plotly.utils
+    import plotly.io as pio
+except Exception as e:
+    raise ImportError("plotly is required for plotting endpoints") from e
+
 import re
 
-# Configure Plotly default format
+# Plotly default format
 pio.kaleido.scope.default_format = "svg"
 
-# Ensure local module import
+# Local imports (asegúrate que el path '../' es correcto)
 import sys
 sys.path.append('../')
-from lib.vlm import VLM, plot_distribution_all, plot_wing_heatmap, plot_wing_heatmap_2d, plot_coefficient_vs_alpha, plot_distribution, plot_CL_CD, plot_CLCD_vs_alpha
+from lib.vlm import (
+    VLM, plot_distribution_all, plot_wing_heatmap,
+    plot_wing_heatmap_2d, plot_coefficient_vs_alpha,
+    plot_distribution, plot_CL_CD, plot_CLCD_vs_alpha
+)
 from lib.naca import plot_naca_airfoil, naca_csv
-from lib.geometry import plot_wing_geometry, plot_wing_geometry_2d, plot_wing_discretization_2d, plot_wing_discretization_3d
+from lib.geometry import (
+    plot_wing_geometry, plot_wing_geometry_2d,
+    plot_wing_discretization_2d, plot_wing_discretization_3d
+)
+from lib.config_manager import config_manager
 
-# Configure logging
+# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# App
 app = Flask(__name__)
-Compress(app)  # Enable compression for Flask app
-app.secret_key = os.urandom(24)  # Secret key for session management
-ui = WebUI(app, debug=True)  # Initialize WebUI
+Compress(app)
+app.secret_key = os.urandom(24)
+ui = WebUI(app, debug=True)
 
-# Optimize CPU & memory usage
-def optimize_resources():
+# Paths
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+SAVED_AIRFOILS = DATA_DIR / "saved_airfoils"
+SAVED_STATES = DATA_DIR / "saved_states"
+SAVED_AIRFOILS.mkdir(exist_ok=True)
+SAVED_STATES.mkdir(exist_ok=True)
+
+# Resource optimization (robust, non‑intrusive)
+def optimize_resources(reserve_cores: int = 1, omp_threads: Optional[int] = None):
+    """
+    Try to set sane defaults for threading and CPU usage:
+    - set OMP/BLAS env vars (if not already set)
+    - set CPU affinity to use physical cores minus reserve_cores (if supported)
+    - increase niceness on Unix to be less aggressive (requires no special permission)
+    The function is conservative and will never raise.
+    """
     try:
-        p = psutil.Process()
-        p.nice(-5 if os.name != 'nt' else psutil.HIGH_PRIORITY_CLASS)
-        p.cpu_affinity(range(multiprocessing.cpu_count()))
+        # prefer explicit caller value, otherwise keep single-threaded BLAS by default
+        threads = 1 if omp_threads is None else max(1, int(omp_threads))
+        os.environ.setdefault("OMP_NUM_THREADS", str(threads))
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", str(threads))
+        os.environ.setdefault("MKL_NUM_THREADS", str(threads))
+        os.environ.setdefault("NUMEXPR_NUM_THREADS", str(threads))
+    except Exception:
+        logger.debug("Failed to set BLAS/OMP environment variables")
+
+    if psutil is None:
+        logger.debug("psutil not available, skipping affinity/nice tuning")
+        return
+
+    try:
+        proc = psutil.Process()
+    except Exception as e:
+        logger.debug(f"psutil.Process() failed: {e}")
+        return
+
+    try:
+        phys = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+        # Reserve at least `reserve_cores` cores for the system; never drop below 1
+        usable = max(1, phys - max(0, int(reserve_cores)))
+        # Use the first `usable` logical cores (safe mapping)
+        logical = psutil.cpu_count(logical=True) or phys
+        cpus = [i for i in range(min(usable, logical))]
+        try:
+            proc.cpu_affinity(cpus)
+            logger.info(f"Set CPU affinity to cores: {cpus}")
+        except Exception:
+            logger.debug("Could not set cpu_affinity (unsupported or insufficient permissions)")
+
+        # On Unix, increase niceness (make process less aggressive) — positive value lowers priority
+        if os.name != "nt":
+            try:
+                current = proc.nice()
+                target = max(current, 5)  # at least nice 5, don't decrease priority
+                proc.nice(target)
+                logger.info(f"Set process niceness to {target}")
+            except Exception:
+                logger.debug("Could not change niceness (insufficient permissions)")
     except Exception as e:
         logger.warning(f"Resource optimization failed: {e}")
 
-optimize_resources()
+# Try to optimize resources at import time but fail gracefully (no hard side effects)
+try:
+    optimize_resources()
+except Exception:
+    logger.debug("optimize_resources() failed at import time; continuing without crash")
 
-# Thread pool & session store
-thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
-sessions = {}
-sessions_lock = Lock()
-
-# Cache for default data
-default_cache = {}
-
-# Load default data asynchronously with caching
-async def load_default_data(file_name, cache_key):
-    if cache_key in default_cache:
-        return default_cache[cache_key]
+# Determine a sensible thread pool size (follow concurrent.futures default heuristic,
+# but cap to avoid huge thread counts on very large machines)
+def _determine_worker_count(reserve_cores: int = 1) -> int:
     try:
-        file_path = os.path.join(os.path.dirname(__file__), file_name)
-        async with aiofiles.open(file_path, 'r') as f:
-            data = json.loads(await f.read())
-        default_cache[cache_key] = data
-        return data
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.error(f"Failed to load {file_name}: {e}", exc_info=True)
-        return {}
+        # Prefer psutil if available (gives physical/logical distinction)
+        if psutil is not None:
+            logical = psutil.cpu_count(logical=True)
+            physical = psutil.cpu_count(logical=False)
+        else:
+            logical = os.cpu_count()
+            physical = None
+        # Choose logical cores when available, else physical, else os.cpu_count fallback
+        cores = logical or physical or os.cpu_count() or 1
+        cores = max(1, int(cores) - max(0, int(reserve_cores)))
+    except Exception:
+        cores = 1
+    # concurrent.futures default: min(32, os.cpu_count() + 4)
+    # Use that heuristic but ensure at least 2 workers for responsiveness
+    return max(2, min(32, cores + 4))
 
-# Synchronous wrappers for Flask compatibility
-def load_default_parameters():
-    return asyncio.run(load_default_data("default_parameters.txt", "parameters"))
+CPU_COUNT = _determine_worker_count(reserve_cores=1)
+thread_pool = ThreadPoolExecutor(max_workers=CPU_COUNT)
 
-def load_default_naca():
-    return asyncio.run(load_default_data("default_naca.txt", "naca"))
-
-def load_default_plane():
-    return asyncio.run(load_default_data("default_plane.txt", "plane")) or {
-        "wing_sections": [],
-        "horizontal_stabilizer": {},
-        "vertical_stabilizer": {}
-    }
-
-# Load defaults at startup
-default_parameters = load_default_parameters()
-default_naca = load_default_naca()
-default_plane = load_default_plane()
-
-vlm_sessions = {}
+# Global state (with locks)
+vlm_sessions: Dict[str, VLM] = {}
 vlm_sessions_lock = Lock()
 
-# Thread-safe VLM computation
-def compute_vlm(plane, u, rho, alpha, beta, n, m, session_id):
+default_cache: Dict[str, Any] = {}
+sessions_lock = Lock()  # for short duration disk writes / critical sections
+
+# Helpers for parsing and validation (fast, safe, small overhead)
+def safe_float(val: Any, default: float = 0.0) -> float:
     try:
-        vlm = VLM(plane, u, rho, alpha, beta, n, m)
-        vlm.save_and_load_plane_variables(filename='cache_plane_variables.txt', option='save_and_load')
-        with vlm_sessions_lock:
-            vlm_sessions[session_id] = vlm
-            saved_states = os.path.join(os.path.dirname(__file__), 'saved_states')
-            os.makedirs(saved_states, exist_ok=True)
-            state_path = os.path.join(saved_states, f"{session_id}.pkl")
-            vlm.save_state(state_path)
-        return {"status": "success", "message": "Wing design computed."}
-    except Exception as e:
-        return {"status": "error", "message": f"VLM computation failed: {e}"}
+        return float(val)
+    except (TypeError, ValueError):
+        return default
 
-@app.before_request
-def ensure_session():
-    if "session_id" not in session:
-        session["session_id"] = str(uuid4())
-        logger.info(f"Nueva sesión creada: {session['session_id']}")
-    if "appearance_mode" not in session:
-        session["appearance_mode"] = "System"  # Modo por defecto
-        session["effective_mode"] = "Light"   # Tema efectivo inicial
-
-@app.route("/set-appearance", methods=["POST"])
-def set_appearance():
+def safe_int(val: Any, default: int = 0) -> int:
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "No se proporcionaron datos JSON"}), 400
-        
-        # Obtener modos del cliente
-        appearance_mode = data.get("appearance_mode", "System")
-        effective_mode = data.get("effective_mode", "Light")
-        
-        # Validar modos
-        valid_appearance_modes = ["Light", "Dark", "System"]
-        valid_effective_modes = ["Light", "Dark"]
-        if appearance_mode not in valid_appearance_modes:
-            appearance_mode = "System"
-        if effective_mode not in valid_effective_modes:
-            effective_mode = "Light"
-        
-        # Almacenar en la sesión
-        session["appearance_mode"] = appearance_mode
-        session["effective_mode"] = effective_mode
-        
-        # Configurar el template de Plotly
-        template = "plotly_dark" if effective_mode == "Dark" else "plotly_white"
-        pio.templates.default = template
-        logger.info(f"Template de Plotly establecido a {template} para modo {appearance_mode}/{effective_mode}")
-        
-        return jsonify({
-            "status": "success",
-            "message": "Modo de apariencia actualizado",
-            "template": template
-        }), 200
-    except Exception as e:
-        logger.error(f"Error al establecer modo de apariencia: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return int(val)
+    except (TypeError, ValueError):
+        return default
 
-# Función para aplicar el tema a los gráficos
-def apply_plotly_theme(fig):
-    template = "plotly_dark" if session.get("effective_mode", "Light") == "Dark" else "plotly_white"
-    fig.update_layout(template=template)
-    return fig
+# Load default data synchronously at startup (small files, avoid async complexity here)
+def load_default_data_sync(filename: str, cache_key: str) -> dict:
+    if cache_key in default_cache:
+        return default_cache[cache_key]
+    path = BASE_DIR / filename
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        default_cache[cache_key] = data
+        return data
+    except FileNotFoundError:
+        logger.warning(f"{filename} no encontrado en {path}")
+        default_cache[cache_key] = {}
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON inválido en {filename}: {e}", exc_info=True)
+        default_cache[cache_key] = {}
+    return {}
 
+default_parameters = load_default_data_sync("data/default_parameters.txt", "parameters")
+default_naca = load_default_data_sync("data/default_naca.txt", "naca")
+default_plane = load_default_data_sync("data/default_plane.txt", "plane") or {
+    "wing_sections": [],
+    "horizontal_stabilizer": {},
+    "vertical_stabilizer": {}
+}
+
+# Decorator to ensure session exists
 def session_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -171,6 +231,69 @@ def session_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+@app.before_request
+def ensure_session():
+    if "session_id" not in session:
+        session["session_id"] = str(uuid4())
+        logger.info(f"Nueva sesión creada: {session['session_id']}")
+    if "appearance_mode" not in session:
+        session["appearance_mode"] = "System"
+    if "effective_mode" not in session:
+        session["effective_mode"] = "Light"
+
+# Appearance management
+@app.route("/set-appearance", methods=["POST"])
+def set_appearance():
+    try:
+        data = request.get_json() or {}
+        appearance_mode = data.get("appearance_mode", "System")
+        effective_mode = data.get("effective_mode", "Light")
+        if appearance_mode not in ("Light", "Dark", "System"):
+            appearance_mode = "System"
+        if effective_mode not in ("Light", "Dark"):
+            effective_mode = "Light"
+
+        session["appearance_mode"] = appearance_mode
+        session["effective_mode"] = effective_mode
+
+        template = "plotly_dark" if effective_mode == "Dark" else "plotly_white"
+        pio.templates.default = template
+        logger.info(f"Template de Plotly establecido a {template} ({appearance_mode}/{effective_mode})")
+        return jsonify({"status": "success", "template": template})
+    except Exception as e:
+        logger.error("Error al establecer apariencia", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def apply_plotly_theme(fig: go.Figure) -> go.Figure:
+    template = "plotly_dark" if session.get("effective_mode", "Light") == "Dark" else "plotly_white"
+    fig.update_layout(template=template)
+    return fig
+
+# VLM: helper to create, save, and store in global dict
+def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str) -> dict:
+    try:
+        vlm = VLM(plane, u, rho, alpha, beta, n, m)
+        # operación que depende de VLM
+        vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
+        state_path = SAVED_STATES / f"{session_id}.pkl"
+        vlm.save_state(str(state_path))
+        with vlm_sessions_lock:
+            vlm_sessions[session_id] = vlm
+        return {"status": "success", "message": "Wing design computed."}
+    except Exception as e:
+        logger.exception("VLM computation error")
+        return {"status": "error", "message": f"VLM computation failed: {e}"}
+
+def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None):
+    # Envía el trabajo a thread_pool y espera el resultado (manteniendo la API existente)
+    future = thread_pool.submit(_vlm_create_and_save, plane, u, rho, alpha, beta, n, m, session_id)
+    try:
+        return future.result(timeout=timeout)
+    except Exception as e:
+        logger.exception("Error waiting VLM future")
+        return {"status": "error", "message": f"VLM thread failed: {e}"}
+
+# Routes
 @app.route("/")
 def index():
     return render_template("welcome.html")
@@ -179,85 +302,115 @@ def index():
 def airfoil():
     return render_template("airfoil.html", default_naca=default_naca)
 
+def _parse_wing_form(form) -> dict:
+    # Extrae secciones del formulario de manera robusta
+    chord_roots = form.getlist("chord_root[]")
+    num_sections = len(chord_roots)
+    sections = []
+    for i in range(num_sections):
+        try:
+            chord_root = safe_float(form.getlist("chord_root[]")[i], 0.0)
+            chord_tip = safe_float(form.getlist("chord_tip[]")[i], chord_root)
+            span_fraction = safe_float(form.getlist("span_fraction[]")[i], 0.0)
+            sweep = np.radians(safe_float(form.getlist("sweep[]")[i], 0.0))
+            alpha = np.radians(safe_float(form.get("alpha", 0.0), 0.0))
+            dihedral = np.radians(safe_float(form.getlist("dihedral[]")[i], 0.0))
+            naca_root = form.getlist("naca_root[]")[i] if i < len(form.getlist("naca_root[]")) else ""
+            naca_tip = form.getlist("naca_tip[]")[i] if i < len(form.getlist("naca_tip[]")) else ""
+
+            section = {
+                "chord_root": chord_root,
+                "chord_tip": chord_tip,
+                "span_fraction": span_fraction,
+                "sweep": sweep,
+                "alpha": alpha,
+                "dihedral": dihedral,
+                "NACA_root": naca_root,
+                "NACA_tip": naca_tip
+            }
+
+            flap_toggled = form.getlist("flap_toggled[]")
+            if i < len(flap_toggled) and flap_toggled[i] == "1":
+                section.update({
+                    "flap_start": safe_float(form.getlist("flap_start[]")[i], 0.0),
+                    "flap_end": safe_float(form.getlist("flap_end[]")[i], 0.0),
+                    "flap_hinge_chord": safe_float(form.getlist("flap_hinge_chord[]")[i], 0.0),
+                    "deflection_angle": np.radians(safe_float(form.getlist("deflection_angle[]")[i], 0.0)),
+                    "deflection_type": form.getlist("deflection_type[]")[i] if i < len(form.getlist("deflection_type[]")) else ""
+                })
+            sections.append(section)
+        except Exception:
+            logger.exception("Error parsing wing section")
+            continue
+    plane = {"wing_sections": sections}
+
+    # HTP & VTP
+    if form.getlist("horizontal_toggled[]") == ["1"]:
+        plane["horizontal_stabilizer"] = {
+            "x_translate": safe_float(form.get("x_translate", 0.0)),
+            "z_translate": safe_float(form.get("z_translate", 0.0)),
+            "NACA_root": form.get("NACA_root", ""),
+            "NACA_tip": form.get("NACA_tip", ""),
+            "chord_root": safe_float(form.get("chord_root", 0.0)),
+            "chord_tip": safe_float(form.get("chord_tip", 0.0)),
+            "span_fraction": safe_float(form.get("span_fraction", 0.0)),
+            "sweep": np.radians(safe_float(form.get("sweep", 0.0))),
+            "alpha": np.radians(safe_float(form.get("htp_alpha", 0.0))),
+            "dihedral": np.radians(safe_float(form.get("htp_dihedral", 0.0))),
+        }
+
+    if form.getlist("vertical_toggled[]") == ["1"]:
+        plane["vertical_stabilizer"] = {
+            "x_translate": safe_float(form.get("x_translate_v", 0.0)),
+            "z_translate": safe_float(form.get("z_translate_v", 0.0)),
+            "NACA_root": form.get("NACA_root_v", ""),
+            "NACA_tip": form.get("NACA_tip_v", ""),
+            "chord_root": safe_float(form.get("chord_root_v", 0.0)),
+            "chord_tip": safe_float(form.get("chord_tip_v", 0.0)),
+            "span_fraction": safe_float(form.get("span_fraction_v", 0.0)),
+            "sweep": np.radians(safe_float(form.get("sweep_v", 0.0))),
+            "alpha": np.radians(safe_float(form.get("alpha_v", 0.0))),
+            "dihedral": np.radians(90),
+        }
+
+    return plane
+
 @app.route("/wing", methods=["GET", "POST"])
-def plane():
+def plane_route():
     if request.method == "POST":
         try:
-            data = request.form
+            form = request.form
             session_id = session.get("session_id")
             if not session_id:
-                logger.error("Session ID missing in /wing POST", exc_info=True)
+                logger.error("Session ID missing in /wing POST")
                 return jsonify({"status": "error", "message": "Session ID missing"}), 400
 
-            sections = []
-            num_sections = len(data.getlist("chord_root[]"))
-            for i in range(num_sections):
-                section = {
-                    "chord_root": float(data.getlist("chord_root[]")[i]),
-                    "chord_tip": float(data.getlist("chord_tip[]")[i]),
-                    "span_fraction": float(data.getlist("span_fraction[]")[i]),
-                    "sweep": np.radians(float(data.getlist("sweep[]")[i])),
-                    "alpha": np.radians(float(data.get("alpha", 0.0))),
-                    "dihedral": np.radians(float(data.getlist("dihedral[]")[i])),
-                    "NACA_root": data.getlist("naca_root[]")[i],
-                    "NACA_tip": data.getlist("naca_tip[]")[i]
-                }
-                if data.getlist("flap_toggled[]")[i] == "1":
-                    section.update({
-                        "flap_start": float(data.getlist("flap_start[]")[i]),
-                        "flap_end": float(data.getlist("flap_end[]")[i]),
-                        "flap_hinge_chord": float(data.getlist("flap_hinge_chord[]")[i]),
-                        "deflection_angle": np.radians(float(data.getlist("deflection_angle[]")[i])),
-                        "deflection_type": data.getlist("deflection_type[]")[i]  # Assuming this is a string
-                    })
-                sections.append(section)
+            plane = _parse_wing_form(form)
+            u = safe_float(form.get("u", 50.0))
+            rho = safe_float(form.get("rho", 1.225))
+            alpha = np.radians(safe_float(form.get("alpha", 0.0)))
+            beta = np.radians(safe_float(form.get("beta", 0.0)))
+            n = safe_int(form.get("n", 10), 10)
+            m = safe_int(form.get("m", 10), 10)
 
-            plane = {"wing_sections": sections}
-            if data.getlist("horizontal_toggled[]") == ["1"]:
-                plane["horizontal_stabilizer"] = {
-                    "x_translate": float(data.get("x_translate", 0.0)),
-                    "z_translate": float(data.get("z_translate", 0.0)),  
-                    "NACA_root": data.get("NACA_root", ""),
-                    "NACA_tip": data.get("NACA_tip", ""),
-                    "chord_root": float(data.get("chord_root", 0.0)),
-                    "chord_tip": float(data.get("chord_tip", 0.0)),
-                    "span_fraction": float(data.get("span_fraction", 0.0)),
-                    "sweep": np.radians(float(data.get("sweep", 0.0))),
-                    "alpha": np.radians(float(data.get("htp_alpha", 0.0))),
-                    "dihedral": np.radians(float(data.get("htp_dihedral", 0.0))),
-                }
-            if data.getlist("vertical_toggled[]") == ["1"]:
-                plane["vertical_stabilizer"] = {
-                    "x_translate": float(data.get("x_translate_v", 0.0)),
-                    "z_translate": float(data.get("z_translate_v", 0.0)),
-                    "NACA_root": data.get("NACA_root_v", ""),
-                    "NACA_tip": data.get("NACA_tip_v", ""),
-                    "chord_root": float(data.get("chord_root_v", 0.0)),
-                    "chord_tip": float(data.get("chord_tip_v", 0.0)),
-                    "span_fraction": float(data.get("span_fraction_v", 0.0)),
-                    "sweep": np.radians(float(data.get("sweep_v", 0.0))),
-                    "alpha": np.radians(float(data.get("alpha_v", 0.0))),
-                    "dihedral": np.radians(90),
-                }
-
-            u = float(data.get("u", 50.0))
-            rho = float(data.get("rho", 1.225))
-            alpha = np.radians(float(data.get("alpha", 0.0)))
-            beta = np.radians(float(data.get("beta", 0.0)))
-            n = int(data.get("n", 10))
-            m = int(data.get("m", 10))
+            # Check if the plane has at least one wing section
+            if not plane.get("wing_sections"):
+                return jsonify({"status": "error", "message": "At least one wing section is required."}), 400
+            
 
             logger.info(f"Submitting VLM computation for session: {session_id}")
 
-            result = compute_vlm(plane, u, rho, alpha, beta, n, m, session_id)
-            logger.info(f"VLM computation result: {result}, vlm_sessions keys: {list(vlm_sessions.keys())}")
-            
-            return jsonify(result), 200 if result["status"] == "success" else 500
+            # Execute VLM computation asynchronously but wait for result here
+            result = compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id)
+            logger.info(f"VLM computation result: {result.keys() if isinstance(result, dict) else result}, vlm_sessions keys: {list(vlm_sessions.keys())}")
+
+            return jsonify(result), 200 if result.get("status") == "success" else 500
+
         except ValueError as e:
-            logger.error(f"Invalid input in /wing: {e}", exc_info=True)
+            logger.error("Invalid input in /wing", exc_info=True)
             return jsonify({"status": "error", "message": f"Invalid input: {e}"}), 400
         except Exception as e:
-            logger.error(f"Error in /wing: {e}", exc_info=True)
+            logger.exception("Error in /wing")
             return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
 
     return render_template("wing.html", default_plane=default_plane, default_parameters=default_parameters)
@@ -268,174 +421,123 @@ def angles():
     try:
         data = request.form
         session_id = session.get("session_id")
-        if not session_id:
-            logger.error("Session ID missing in /angles POST", exc_info=True)
-            return jsonify({"status": "error", "message": "Session ID missing"}), 400
 
-        # Obtener los ángulos de ataque como una lista desde el campo angles_deg
         angles_deg_str = data.get("angles_deg", "")
-        # Use regex to correctly split and parse negative numbers
-        angles_deg = [float(match) for match in re.findall(r'-?\d+(?:\.\d+)?', angles_deg_str)]
-
+        angles_deg = [float(x) for x in re.findall(r'-?\d+(?:\.\d+)?', angles_deg_str)]
         if not angles_deg:
             return jsonify({"status": "error", "message": "No angles provided"}), 400
 
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if not vlm:
-            logger.error("VLM not initialized", exc_info=True)
             return jsonify({"status": "error", "message": "VLM not initialized. Please design a wing first."}), 400
 
-        # Calcular los coeficientes para los ángulos dados
         vlm.compute_coefficients_vs_alpha(angles_deg)
 
-        # Confirmar que los resultados se han calculado y almacenado
         if vlm.results is None or 'CL' not in vlm.results or 'CD' not in vlm.results:
             return jsonify({"status": "error", "message": "Failed to compute coefficients"}), 500
 
         return jsonify({"status": "success", "message": "Coefficients computed successfully"}), 200
 
-    except ValueError as e:
-        logger.error(f"Invalid input in /angles: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Invalid input: {e}"}), 400
     except Exception as e:
-        logger.error(f"Error in /angles: {e}", exc_info=True)
+        logger.exception("Error in /angles")
         return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
 
 @app.route("/results", methods=["GET", "POST"])
 @session_required
 def results():
     session_id = session.get("session_id")
-    def compute(vlm):
-        logger.info("Starting compute function")
-        if not vlm:
-            logger.error("VLM object is None", exc_info=True)
+    logger.info(f"Accessing /results for session: {session_id}")
+
+    def compute(vlm: VLM):
+        if vlm is None:
             raise ValueError("VLM object is not initialized")
-        
         if vlm.wing_geometry is None:
-            logger.info("Calling calculate_geometry")
+            logger.info("Calculating geometry...")
             vlm.calculate_geometry()
-            logger.info("calculate_geometry completed")
-        else:
-            logger.info("wing_geometry already computed")
-        
         if vlm.panel_data is None:
-            logger.info("Calling calculate_discretization")
+            logger.info("Calculating discretization...")
             vlm.calculate_discretization()
-            logger.info("calculate_discretization completed")
-        else:
-            logger.info("panel_data already computed")
-        
-        logger.info("Calling calculate_wing_lift")
-        try:
+        if not hasattr(vlm, 'lift'):
+            logger.info("Calculating wing lift...")
             vlm.calculate_wing_lift()
-            logger.info("calculate_wing_lift completed")
-        except Exception as e:
-            logger.error(f"Error in calculate_wing_lift: {str(e)}", exc_info=True)
-            raise
         return vlm
-    
+
     try:
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if not vlm:
-            logger.error("VLM not initialized despite session check", exc_info=True)
-            return redirect(url_for("plane"))
+            logger.error("VLM not initialized despite session check")
+            return redirect(url_for("plane_route"))
 
-        future = thread_pool.submit(compute, vlm)
-        vlm = future.result()
-        
-        # Compute total lifts for each component
-        wing_lift_total = np.sum(vlm.lift_sum['lift_wing']) if 'lift_wing' in vlm.lift_sum else None
-        hs_lift_total = np.sum(vlm.lift_sum['lift_hs']) if 'lift_hs' in vlm.lift_sum else None
-        vs_lift_total = np.sum(vlm.lift_sum['lift_vs']) if 'lift_vs' in vlm.lift_sum else None
+        if vlm.results is None:
+            future = thread_pool.submit(compute, vlm)
+            vlm = future.result()
 
-        # Format values with appropriate precision
-        cl = f"{vlm.CL:.4f}" if vlm.CL is not None else "--"
-        cd = f"{vlm.CD:.4f}" if vlm.CD is not None else "--"
-        total_lift = f"{vlm.lift:.2f}" if vlm.lift is not None else "--"
-        total_drag = f"{vlm.drag:.2f}" if vlm.drag is not None else "--"
+        wing_lift_total = np.sum(vlm.lift_sum.get('lift_wing', [])) if hasattr(vlm, 'lift_sum') else None
+        hs_lift_total = np.sum(vlm.lift_sum.get('lift_hs', [])) if hasattr(vlm, 'lift_sum') else None
+        vs_lift_total = np.sum(vlm.lift_sum.get('lift_vs', [])) if hasattr(vlm, 'lift_sum') else None
+
+        cl = f"{vlm.CL:.4f}" if getattr(vlm, 'CL', None) is not None else "--"
+        cd = f"{vlm.CD:.4f}" if getattr(vlm, 'CD', None) is not None else "--"
+        total_lift = f"{vlm.lift:.2f}" if getattr(vlm, 'lift', None) is not None else "--"
+        total_drag = f"{vlm.drag:.2f}" if getattr(vlm, 'drag', None) is not None else "--"
         wing_lift = f"{wing_lift_total:.2f}" if wing_lift_total is not None else "--"
         hs_lift = f"{hs_lift_total:.2f}" if hs_lift_total is not None else "--"
         vs_lift = f"{vs_lift_total:.2f}" if vs_lift_total is not None else "--"
 
-        logger.info("Compute completed successfully")
-        # Pass formatted values to the template
         return render_template(
             "results.html",
-            cl=cl,
-            cd=cd,
-            total_lift=total_lift,
-            total_drag=total_drag,
-            wing_lift=wing_lift,
-            hs_lift=hs_lift,
-            vs_lift=vs_lift,
-            results=results,
+            cl=cl, cd=cd, total_lift=total_lift, total_drag=total_drag,
+            wing_lift=wing_lift, hs_lift=hs_lift, vs_lift=vs_lift,
+            results=vlm.results
         )
-    
     except Exception as e:
-        logger.error(f"Error in /results: {str(e)}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Exception: {str(e)}"}), 500
+        logger.exception("Error in /results")
+        return jsonify({"status": "error", "message": f"Exception: {e}"}), 500
 
 @app.route('/plot/airfoil', methods=['POST'])
 @session_required
 def plot_airfoil():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         naca = data.get('naca', '1310')
-        cuerda = float(data.get('chord', 1.0))
-        alpha = float(data.get('alpha', 0))
+        chord = safe_float(data.get('chord', 1.0))
+        alpha = safe_float(data.get('alpha', 0.0))
 
         fig = go.Figure()
-        plot_naca_airfoil(fig, naca, cuerda, alpha)
-        fig = apply_plotly_theme(fig)  # Aplicar tema
-        plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+        plot_naca_airfoil(fig, naca, chord, alpha)
+        fig_result = apply_plotly_theme(fig)
+        plot_json = json.dumps(fig_result, cls=plotly.utils.PlotlyJSONEncoder)
         return jsonify({"plot": plot_json})
-    
     except Exception as e:
-        logger.error(f"Error en /plot/airfoil: {e}", exc_info=True)
+        logger.exception("Error en /plot/airfoil")
         return jsonify({"status": "error", "message": str(e)}), 500
-    
+
 @app.route('/save_airfoil', methods=['POST'])
 @session_required
 def save_airfoil():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         naca = data.get('naca', '1310')
-        chord = float(data.get('chord', 1.0))  # Use 'chord' consistently
-        alpha = float(data.get('alpha', 0))
+        chord = safe_float(data.get('chord', 1.0))
+        alpha = safe_float(data.get('alpha', 0.0))
 
-        # Save the airfoil data to a JSON file
-        airfoil_data = {
-            "naca": naca,
-            "chord": chord,  # Consistent naming
-            "alpha": alpha
-        }
-        saved_dir = os.path.join(os.path.dirname(__file__), 'saved_airfoils')
-        os.makedirs(saved_dir, exist_ok=True)
-        json_path = os.path.join(saved_dir, f"{naca}.json")
-        
-        # Thread-safe file writing
-        with sessions_lock:  # Use existing lock for thread safety
-            with open(json_path, 'w') as f:
+        airfoil_data = {"naca": naca, "chord": chord, "alpha": alpha}
+        json_path = SAVED_AIRFOILS / f"{naca}.json"
+
+        with sessions_lock:
+            with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(airfoil_data, f)
 
-        # Generate CSV file
-        csv_path = os.path.join(saved_dir, f"{naca}.csv")
-        naca_csv(naca, chord, alpha, filename=csv_path)
+        csv_path = SAVED_AIRFOILS / f"{naca}.csv"
+        naca_csv(naca, chord, alpha, filename=str(csv_path))
 
-        # Return the CSV file for download
-        return send_file(
-            csv_path,
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f"naca_{naca}_airfoil.csv"
-        )
-
+        return send_file(str(csv_path), mimetype='text/csv', as_attachment=True, download_name=f"naca_{naca}_airfoil.csv")
     except Exception as e:
-        logger.error(f"Error in /save_airfoil: {e}", exc_info=True)
+        logger.exception("Error in /save_airfoil")
         return jsonify({"status": "error", "message": str(e)}), 500
-    
+
 @app.route('/load_airfoil', methods=['POST'])
 @session_required
 def load_airfoil():
@@ -443,211 +545,485 @@ def load_airfoil():
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "No data provided"}), 400
-        
-        # Validate expected fields
+
         expected_fields = ['naca', 'chord', 'alpha']
-        airfoil_data = {}
         for field in expected_fields:
             if field not in data:
                 return jsonify({"status": "error", "message": f"Missing field: {field}"}), 400
-            airfoil_data[field] = data[field]
-        
-        # Optional fields with defaults
-        airfoil_data['u'] = data.get('u', default_naca.get('u', 50.0))
-        airfoil_data['n'] = data.get('n', default_naca.get('n', 100))
-        
-        # Basic validation
-        try:
-            airfoil_data['chord'] = float(airfoil_data['chord'])
-            airfoil_data['alpha'] = float(airfoil_data['alpha'])
-            airfoil_data['u'] = float(airfoil_data['u'])
-            airfoil_data['n'] = int(airfoil_data['n'])
-        except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "Invalid numeric values in file"}), 400
-        
-        # Additional checks
+
+        airfoil_data = {
+            'naca': data['naca'],
+            'chord': safe_float(data['chord']),
+            'alpha': safe_float(data['alpha']),
+            'u': safe_float(data.get('u', default_naca.get('u', 50.0))),
+            'n': safe_int(data.get('n', default_naca.get('n', 100)))
+        }
+
         if airfoil_data['u'] < 0.01:
             return jsonify({"status": "error", "message": "Free stream velocity must be at least 0.01"}), 400
-        if airfoil_data['alpha'] < -90 or airfoil_data['alpha'] > 90:
+        if not (-90 <= airfoil_data['alpha'] <= 90):
             return jsonify({"status": "error", "message": "Angle of attack must be between -90 and 90"}), 400
-        if airfoil_data['chord'] < -30 or airfoil_data['chord'] > 30:
+        if not (-30 <= airfoil_data['chord'] <= 30):
             return jsonify({"status": "error", "message": "Chord length must be between -30 and 30"}), 400
-        
+
         return jsonify({"status": "success", "airfoil": airfoil_data}), 200
-
     except Exception as e:
-        logger.error(f"Error in /load_airfoil: {e}", exc_info=True)
+        logger.exception("Error in /load_airfoil")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/save_plane', methods=['POST'])
-@session_required
-def save_plane():
-    session_id = session.get("session_id")
-    vlm = vlm_sessions[session_id]
-    
-    saved_dir = os.path.join(os.path.dirname(__file__), 'saved_planes')
-    os.makedirs(saved_dir, exist_ok=True)
-    filename = f"plane_{session_id}.json"
-    json_path = os.path.join(saved_dir, filename)
-    
-    vlm.save_plane(json_path)
-    return send_file(
-        json_path,
-        mimetype='application/json',
-        as_attachment=True,
-        download_name=filename
-    )
-
-
-@app.route('/load_plane', methods=['POST'])
-@session_required
-def load_plane():
-    session_id = session.get("session_id")
-    vlm = vlm_sessions.get(session_id)
-    if not vlm:
-        return jsonify({"status":"error","message":"Design a wing first"}), 400
-
-    data = request.get_json()
-
-    # Case 1: browser just posted the plane dict
-    if data and isinstance(data, dict) and data.get('wing_sections') is not None:
-        vlm.plane = data
-        return jsonify({"status":"success", "plane": vlm.plane}), 200
-
-    # Case 2: browser asked us to load a previously saved JSON by filename
-    filename = data.get('filename')
-    if not filename:
-        return jsonify({"status":"error","message":"No filename provided"}), 400
-    file_path = os.path.join(os.path.dirname(__file__), 'saved_planes', filename)
-    if not os.path.exists(file_path):
-        return jsonify({"status":"error","message":"File not found"}), 404
-
-    vlm.load_plane(file_path)
-    return jsonify({"status":"success", "plane": vlm.plane}), 200
 
 @app.route('/load_vlm_state', methods=['POST'])
 @session_required
 def load_vlm_state():
-    session_id = session.get("session_id")
-    vlm = vlm_sessions.get(session_id)
-    if not vlm:
-        return jsonify({"status":"error","message":"No session"}), 400
-
-    # Ignore payload; pick up the state file for the current session
-    session_id = session.get("session_id")
-    if session_id not in vlm_sessions:
-        return jsonify({"status":"error","message":"No active VLM session"}), 400
-    state_dir = os.path.join(os.path.dirname(__file__), 'saved_states')
-    filename = f"{session_id}.pkl"
-    path = os.path.join(state_dir, filename)
-    if not os.path.exists(path):
-        return jsonify({"status":"error","message":"No saved state found"}), 404
-
     try:
-        vlm_sessions[session_id].load_state(path)
-        return jsonify({"status":"success","message":"VLM state loaded successfully"}), 200
-    except Exception as e:
-        return jsonify({"status":"error","message":f"Failed to load state: {e}"}), 500
+        session_id = session.get("session_id")
+        state_file = SAVED_STATES / f"{session_id}.pkl"
+        if not state_file.exists():
+            return jsonify({"status": "error", "message": "No saved state found"}), 404
 
-@app.route('/plot/<plot_type>', methods=['GET','POST'])
+        with vlm_sessions_lock:
+            if session_id not in vlm_sessions:
+                return jsonify({"status": "error", "message": "No active VLM session"}), 400
+            vlm_sessions[session_id].load_state(str(state_file))
+        return jsonify({"status": "success", "message": "VLM state loaded successfully"}), 200
+    except Exception as e:
+        logger.exception("Error in /load_vlm_state")
+        return jsonify({"status": "error", "message": f"Failed to load state: {e}"}), 500
+
+# Optimized plot dispatch endpoint
+@app.route('/plot/<plot_type>', methods=['GET', 'POST'])
 @session_required
 def plot_data(plot_type):
-    session_id = session.get("session_id")
-
-    # Get the JSON data from the request
-    data = request.get_json(silent=True) or {}
-    
-    def compute(vlm):
-        if vlm.wing_geometry is None:
-            vlm.calculate_geometry()
-        if vlm.panel_data is None:
-            vlm.calculate_discretization()
-        if plot_type in ['Lift', 'Drag'] and vlm.lift_wing is None:
-            vlm.calculate_wing_lift()
-        return vlm
-
     try:
+        session_id = session.get("session_id")
+        data = request.get_json(silent=True) or {}
+
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if not vlm:
             return jsonify({"status": "error", "message": "VLM no inicializado"}), 400
 
-        future = thread_pool.submit(compute, vlm)
-        vlm = future.result()
+        # Ensure geometry/discretization
+        def ensure_vlm_ready(vlm_obj):
+            if vlm_obj.wing_geometry is None:
+                vlm_obj.calculate_geometry()
+            if vlm_obj.panel_data is None:
+                vlm_obj.calculate_discretization()
+            return vlm_obj
 
+        vlm = thread_pool.submit(ensure_vlm_ready, vlm).result()
         fig = go.Figure()
-        if plot_type == 'geometry':
-            fig = plot_wing_geometry(fig, vlm.wing_geometry, legend="Wing Geometry")
-            if vlm.hs_geometry:
-                fig = plot_wing_geometry(fig, vlm.hs_geometry, legend="Horizontal Stabilizer")
-            if vlm.vs_geometry:
-                fig = plot_wing_geometry(fig, vlm.vs_geometry, legend="Vertical Stabilizer")
-        elif plot_type == 'geometry_2d':
-            fig = plot_wing_geometry_2d(fig, vlm.wing_geometry, legend="Wing Geometry")
-            if vlm.hs_geometry:
-                fig = plot_wing_geometry_2d(fig, vlm.hs_geometry, legend="Horizontal Stabilizer")
-        elif plot_type == 'discretization2D':
-            fig = plot_wing_discretization_2d(fig, vlm.panel_data)
-        elif plot_type == 'discretization3D':
-            fig = plot_wing_discretization_3d(fig, vlm.panel_data)
-        elif plot_type == 'Lift':
-            fig = plot_distribution_all(fig, vlm, quantity='LIFT')
-        elif plot_type == 'Drag':
-            fig = plot_distribution_all(fig, vlm, quantity='DRAG')
-        elif plot_type == 'CL':
-            fig = plot_distribution_all(fig, vlm, quantity='CL')
-        elif plot_type == 'CD':
-            fig = plot_distribution_all(fig, vlm, quantity='CD')
-        elif plot_type == 'wi':
-            fig = plot_wing_heatmap(fig, vlm.panel_data, vlm.w_i, title='Induced Velocity Distribution', legend='Induced Velocity [m/s]')
-        elif plot_type == 'gammas':
-            fig = plot_wing_heatmap(fig, vlm.panel_data, vlm.gammas, title='Gamma Distribution', legend='Gamma [m²/s]')
-        elif plot_type == 'curvature':
-            fig = plot_wing_heatmap(fig, vlm.panel_data, vlm.dz_c, title='Curvature Distribution', legend='Curvature [1/m]')
-        elif plot_type == 'wi_2d':
-            fig = plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.w_i, title='Induced Velocity Distribution', legend='Induced Velocity [m/s]', u_vec=vlm.u_)
-        elif plot_type == 'gammas_2d':
-            fig = plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.gammas, title='Gamma Distribution', legend='Gamma [m²/s]', u_vec=vlm.u_)
-        elif plot_type == 'curvature_2d':
-            fig = plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.dz_c, title='Curvature Distribution', legend='Curvature [1/m]', u_vec=vlm.u_)
-        elif plot_type == 'CL_CD':
-            fig = plot_CL_CD(fig, vlm, title='CL vs CD of the Wing')
-        elif plot_type == 'CL-alpha':
-            if vlm.results is None or 'CL' not in vlm.results:
-                return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
-            fig = plot_coefficient_vs_alpha(fig, vlm, coefficient='CL')
-        elif plot_type == 'CD-alpha':
-            if vlm.results is None or 'CD' not in vlm.results:
-                return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
-            fig = plot_coefficient_vs_alpha(fig, vlm, coefficient='CD')
-        elif plot_type == 'CL-CD-alpha':
-            if vlm.results is None or 'CD' not in vlm.results or 'CL' not in vlm.results:
-                return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
-            fig = plot_CLCD_vs_alpha(fig, vlm, title=None)
-        elif plot_type == 'LiftSection':
-            if 'n_section' in data:
-                try:
-                    n_section = int(data['n_section'])  # Convert to integer
-                except (ValueError, TypeError):
-                    return jsonify({"status": "error", "message": "Invalid n_section value, must be a number"}), 400
-            fig = plot_distribution(vlm, n_section, quantity='lift')
-        elif plot_type == 'DragSection':
-            if 'n_section' in data:
-                try:
-                    n_section = int(data['n_section'])  # Convert to integer
-                except (ValueError, TypeError):
-                    return jsonify({"status": "error", "message": "Invalid n_section value, must be a number"}), 400    
-            fig = plot_distribution(vlm, n_section, quantity='drag')   
-        else:
+
+        # Plot dispatch table for clarity and speed
+        plot_map = {
+            'geometry': lambda: (
+                plot_wing_geometry(fig, vlm.wing_geometry, legend="Wing Geometry"),
+                getattr(vlm, 'hs_geometry', None) and plot_wing_geometry(fig, vlm.hs_geometry, legend="Horizontal Stabilizer"),
+                getattr(vlm, 'vs_geometry', None) and plot_wing_geometry(fig, vlm.vs_geometry, legend="Vertical Stabilizer")
+            )[0],
+            'geometry_2d': lambda: (
+                plot_wing_geometry_2d(fig, vlm.wing_geometry, legend="Wing Geometry"),
+                getattr(vlm, 'hs_geometry', None) and plot_wing_geometry_2d(fig, vlm.hs_geometry, legend="Horizontal Stabilizer")
+            )[0],
+            'discretization2D': lambda: plot_wing_discretization_2d(fig, vlm.panel_data),
+            'discretization3D': lambda: plot_wing_discretization_3d(fig, vlm.panel_data),
+            'Lift': lambda: plot_distribution_all(fig, vlm, quantity='LIFT'),
+            'Drag': lambda: plot_distribution_all(fig, vlm, quantity='DRAG'),
+            'CL': lambda: plot_distribution_all(fig, vlm, quantity='CL'),
+            'CD': lambda: plot_distribution_all(fig, vlm, quantity='CD'),
+            'wi': lambda: plot_wing_heatmap(fig, vlm.panel_data, vlm.w_i, title='Induced Velocity Distribution', legend='Induced Velocity [m/s]'),
+            'gammas': lambda: plot_wing_heatmap(fig, vlm.panel_data, vlm.gammas, title='Gamma Distribution', legend='Gamma [m²/s]'),
+            'curvature': lambda: plot_wing_heatmap(fig, vlm.panel_data, vlm.dz_c, title='Curvature Distribution', legend='Curvature [1/m]'),
+            'wi_2d': lambda: plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.w_i, title='Induced Velocity Distribution', legend='Induced Velocity [m/s]', u_vec=getattr(vlm, 'u_', None)),
+            'gammas_2d': lambda: plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.gammas, title='Gamma Distribution', legend='Gamma [m²/s]', u_vec=getattr(vlm, 'u_', None)),
+            'curvature_2d': lambda: plot_wing_heatmap_2d(fig, vlm.panel_data, vlm.dz_c, title='Curvature Distribution', legend='Curvature [1/m]', u_vec=getattr(vlm, 'u_', None)),
+            'CL_CD': lambda: plot_CL_CD(fig, vlm, title='CL vs CD of the Wing'),
+            'CL-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CL') if vlm.results and 'CL' in vlm.results else None,
+            'CD-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CD') if vlm.results and 'CD' in vlm.results else None,
+            'CL-CD-alpha': lambda: plot_CLCD_vs_alpha(fig, vlm, title=None) if vlm.results and 'CL' in vlm.results and 'CD' in vlm.results else None,
+            'LiftSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='lift'),
+            'DragSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='drag')
+        }
+
+        plot_func = plot_map.get(plot_type)
+        if not plot_func:
             return jsonify({"status": "error", "message": "Tipo de gráfico inválido"}), 400
-        
-        fig = apply_plotly_theme(fig)  # Aplicar tema
+
+        fig_result = plot_func()
+        if fig_result is None:
+            # Specific error for missing coefficients
+            if plot_type in ('CL-alpha', 'CD-alpha', 'CL-CD-alpha'):
+                return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
+            return jsonify({"status": "error", "message": "Plot data unavailable"}), 400
+
+        fig = apply_plotly_theme(fig_result)
         plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
         return jsonify({"plot": plot_json})
-
     except Exception as e:
-        logger.error(f"Error en /plot/{plot_type}: {e}", exc_info=True)
+        logger.exception(f"Error en /plot/{plot_type}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# Config management API (se mantienen las funciones del manager)
+@app.route('/api/configs', methods=['GET'])
+@session_required
+def list_configs():
+    try:
+        configs = config_manager.list_configs()
+        return jsonify({"status": "success", "configs": configs, "total_count": len(configs)})
+    except Exception as e:
+        logger.exception("Error listing configs")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/save_plane_config', methods=['POST'])
+@session_required
+def save_plane_config():
+    try:
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if not vlm:
+            return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
+
+        data = request.get_json() or {}
+        filename = data.get('filename', f'plane_{session_id}')
+
+        config = getattr(vlm, 'plane', {}).copy()
+        if data.get('include_flight_params', False):
+            config['flight_parameters'] = {
+                'u': getattr(vlm, 'u', None),
+                'rho': getattr(vlm, 'rho', None),
+                'alpha': getattr(vlm, 'alpha', None),
+                'beta': getattr(vlm, 'beta', None),
+                'n': getattr(vm, 'n', None) if False else getattr(vlm, 'n', None),  # fallback safe access
+                'm': getattr(vlm, 'm', None)
+            }
+        config['name'] = data.get('name', f'Configuración {session_id}')
+        config['description'] = data.get('description', '')
+
+        result = config_manager.save_config(config, filename)
+        if result.get('status') == 'success':
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        logger.exception("Error in save_plane_config")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/load_plane_config', methods=['POST'])
+@session_required
+def load_plane_config():
+    try:
+        data = request.get_json() or {}
+        filename = data.get('filename')
+        if not filename:
+            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+
+        result = config_manager.load_config(filename)
+        if result.get('status') != 'success':
+            return jsonify(result), 400
+
+        config = result.get('config', {})
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+            if not vlm:
+                return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
+            vlm.plane = config
+
+            # Cargar parámetros de vuelo si están incluidos
+            if 'flightparameters' in config and data.get('loadflightparams', False):
+                fp = config['flightparameters']
+                vlm.u = fp.get('u', vlm.u)
+                vlm.rho = fp.get('rho', vlm.rho)
+                vlm.alpha = fp.get('alpha', vlm.alpha)
+                vlm.beta = fp.get('beta', vlm.beta)
+                vlm.n = fp.get('n', vlm.n)
+                vlm.m = fp.get('m', vlm.m)
+
+        return jsonify(status="success", message=result.get('message'), config=config, checksum_valid=result.get('checksum_valid'), version=result.get('version'))
+    except Exception as e:
+        logger.exception("Error in load_plane_config")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/delete_config', methods=['DELETE'])
+@session_required
+def delete_config():
+    try:
+        data = request.get_json() or {}
+        filename = data.get('filename')
+        if not filename:
+            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+        result = config_manager.delete_config(filename)
+        if result.get('status') == 'success':
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        logger.exception("Error in delete_config")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/validate_config', methods=['POST'])
+def validate_config():
+    try:
+        config = request.get_json()
+        if not config:
+            return jsonify({"status": "error", "message": "No se proporcionó configuración"}), 400
+        config_type = "wing" if "wingsections" in config else "parameters"
+        errors = config_manager.validate_config(config, config_type)
+        if errors:
+            return jsonify({"status": "error", "message": "Configuración inválida", "validation_errors": errors, "is_valid": False})
+        return jsonify({"status": "success", "message": "Configuración válida", "is_valid": True, "checksum": config_manager.calculate_checksum(config)})
+    except Exception as e:
+        logger.exception("Error in validate_config")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/airfoil-configs', methods=['GET'])
+def list_airfoil_configs():
+    """Lista todas las configuraciones de airfoil guardadas"""
+    try:
+        # Busca archivos que empiecen con 'airfoil_' o terminen con '_airfoil.json'
+        configs = config_manager.list_configs("*airfoil*.json")
+        
+        return jsonify({
+            "status": "success",
+            "configs": configs,
+            "count": len(configs)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": f"Error listing airfoil configs: {str(e)}"
+        }), 500
+
+@app.route('/api/saveairfoilconfig', methods=['POST'])
+def save_airfoil_config():
+    """Guarda una configuración de airfoil"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename', '').strip()
+        airfoil_data = data.get('data', {})
+        
+        if not filename:
+            return jsonify({
+                "status": "error",
+                "message": "Filename is required"
+            }), 400
+            
+        # Validación básica de datos de airfoil
+        required_fields = ['naca', 'u', 'alpha', 'chord', 'n']
+        missing_fields = [field for field in required_fields if field not in airfoil_data]
+        
+        if missing_fields:
+            return jsonify({
+                "status": "error",
+                "message": f"Missing required fields: {', '.join(missing_fields)}"
+            }), 400
+        
+        # Prefija el nombre del archivo para identificarlo como configuración de airfoil
+        if not filename.startswith('airfoil_'):
+            filename = f"airfoil_{filename}"
+        
+        # Estructura de datos para airfoil
+        config_data = {
+            "type": "airfoil",
+            "naca": airfoil_data['naca'],
+            "u": float(airfoil_data['u']),
+            "alpha": float(airfoil_data['alpha']),
+            "chord": float(airfoil_data['chord']),
+            "n": int(airfoil_data['n']),
+            "description": airfoil_data.get('description', ''),
+            "parameters": {
+                "velocity": float(airfoil_data['u']),
+                "angle_of_attack": float(airfoil_data['alpha']),
+                "chord_length": float(airfoil_data['chord']),
+                "points": int(airfoil_data['n'])
+            }
+        }
+        
+        result = config_manager.save_config(config_data, filename)
+        
+        if result['status'] == 'success':
+            return jsonify({
+                "status": "success",
+                "message": f"Airfoil configuration '{filename}' saved successfully!",
+                "filename": result['filename'],
+                "backup_created": result.get('backup_created', False)
+            }), 200
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error saving airfoil config: {str(e)}"
+        }), 500
+
+@app.route('/api/loadairfoilconfig', methods=['POST'])
+def load_airfoil_config():
+    """Carga una configuración de airfoil"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename', '').strip()
+        
+        if not filename:
+            return jsonify({
+                "status": "error",
+                "message": "Filename is required"
+            }), 400
+        
+        result = config_manager.load_config(filename)
+        
+        if result['status'] == 'success':
+            config = result['config']
+            
+            # Valida que sea una configuración de airfoil
+            if config.get('type') != 'airfoil':
+                return jsonify({
+                    "status": "error",
+                    "message": "Selected file is not an airfoil configuration"
+                }), 400
+            
+            # Extrae los datos del airfoil para el frontend
+            airfoil_data = {
+                "naca": config.get('naca', '0012'),
+                "u": config.get('u', 10.0),
+                "alpha": config.get('alpha', 5.0),
+                "chord": config.get('chord', 1.0),
+                "n": config.get('n', 100),
+                "description": config.get('description', '')
+            }
+            
+            return jsonify({
+                "status": "success",
+                "message": f"Airfoil configuration loaded successfully!",
+                "airfoil": airfoil_data,
+                "filename": filename,
+                "version": result.get('version', 'unknown'),
+                "checksum_valid": result.get('checksum_valid', True)
+            }), 200
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error loading airfoil config: {str(e)}"
+        }), 500
+
+@app.route('/api/deleteairfoilconfig', methods=['POST'])
+def delete_airfoil_config():
+    """Elimina una configuración de airfoil"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename', '').strip()
+        
+        if not filename:
+            return jsonify({
+                "status": "error",
+                "message": "Filename is required"
+            }), 400
+        
+        result = config_manager.delete_config(filename)
+        
+        if result['status'] == 'success':
+            return jsonify({
+                "status": "success",
+                "message": f"Airfoil configuration '{filename}' deleted successfully!",
+                "backup_created": result.get('backup_created', False)
+            }), 200
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error deleting airfoil config: {str(e)}"
+        }), 500
+
+@app.route('/api/validateairfoilconfig', methods=['POST'])
+def validate_airfoil_config():
+    """Valida una configuración de airfoil"""
+    try:
+        data = request.get_json()
+        airfoil_data = data.get('data', {})
+        
+        errors = []
+        
+        # Validaciones específicas para airfoil
+        validations = {
+            'naca': {
+                'required': True,
+                'type': str,
+                'pattern': r'^[0-9]{4}$',
+                'message': 'NACA profile must be 4 digits (e.g., 0012)'
+            },
+            'u': {
+                'required': True,
+                'type': (int, float),
+                'range': (0.1, 1000),
+                'message': 'Velocity must be between 0.1 and 1000 m/s'
+            },
+            'alpha': {
+                'required': True,
+                'type': (int, float),
+                'range': (-90, 90),
+                'message': 'Angle of attack must be between -90 and 90 degrees'
+            },
+            'chord': {
+                'required': True,
+                'type': (int, float),
+                'range': (0.01, 100),
+                'message': 'Chord length must be between 0.01 and 100 meters'
+            },
+            'n': {
+                'required': True,
+                'type': int,
+                'range': (10, 5000),
+                'message': 'Number of points must be between 10 and 5000'
+            }
+        }
+        
+        for field, rules in validations.items():
+            value = airfoil_data.get(field)
+            
+            if rules['required'] and (value is None or value == ''):
+                errors.append(f"{field}: Required field missing")
+                continue
+            
+            if value is not None:
+                # Type check
+                if not isinstance(value, rules['type']):
+                    try:
+                        if rules['type'] == int:
+                            value = int(float(value))
+                        elif rules['type'] == (int, float):
+                            value = float(value)
+                    except (ValueError, TypeError):
+                        errors.append(f"{field}: {rules['message']}")
+                        continue
+                
+                # Range check
+                if 'range' in rules:
+                    min_val, max_val = rules['range']
+                    if not (min_val <= value <= max_val):
+                        errors.append(f"{field}: {rules['message']}")
+                
+                # Pattern check (for NACA)
+                if 'pattern' in rules:
+                    import re
+                    if not re.match(rules['pattern'], str(value)):
+                        errors.append(f"{field}: {rules['message']}")
+        
+        return jsonify({
+            "status": "success",
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "message": "Validation passed" if not errors else f"Found {len(errors)} validation errors"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error validating airfoil config: {str(e)}"
+        }), 500
 
 if __name__ == "__main__":
     optimize_resources()
@@ -655,4 +1031,4 @@ if __name__ == "__main__":
         #app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
         ui.run()
     finally:
-        thread_pool.shutdown(wait=True)
+        thread_pool.shutdown(wait=True)                                                                                                                                                                 

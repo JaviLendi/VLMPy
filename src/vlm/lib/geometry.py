@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-sys.path.append('../')  # permite importar modulos de la carpeta vecinos
+sys.path.append('../')  # Add parent directory to path for module imports
 
 import time
 import numpy as np
