@@ -54,7 +54,7 @@ class VLM:
         self.wing_span          = 0
         self.results            = None
 
-    def save_and_load_plane_variables(self, filename='plane_variables.txt', option='save_and_load'):
+    def save_and_load_plane_variables(self, filename='data/plane_variables.txt', option='save_and_load'):
         # Save and load plane variables to/from a text file
         def save_plane_variables(self, filename):
             with open(filename, 'w') as file:
@@ -119,11 +119,11 @@ class VLM:
         self.wing_geometry, self.hs_geometry, self.vs_geometry = calculate_geometry(self)
 
     def calculate_discretization(self):
-        # Densidad de paneles del ala
+        # Determine panel density
         wing_panel_density = self.n / self.total_wing_span
         wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
 
-        # Calcular paneles para estabilizadores
+        # Calculate n_hs, m_hs, n_vs, m_vs
         if 'horizontal_stabilizer' in self.plane:
             self.n_hs = int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction']))
             self.m_hs = int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root']))
@@ -136,7 +136,7 @@ class VLM:
         else:
             self.n_vs, self.m_vs = 0, 0
 
-        # Generar puntos interpolados
+        # Generate discretization points
         wing_vertical_points, wing_horizontal_points, wing_z_points = interpolate_wing_points(self, type="wing")
         self.discretization = {'wing': {'vertical_points': wing_vertical_points, 'horizontal_points': wing_horizontal_points, 'z_points': wing_z_points}}
 
@@ -148,16 +148,16 @@ class VLM:
             vs_vertical_points, vs_horizontal_points, vs_z_points = interpolate_wing_points(self, type="vs")
             self.discretization['vertical_stabilizer'] = {'vertical_points': vs_vertical_points, 'horizontal_points': vs_horizontal_points, 'z_points': vs_z_points}
 
-        # Generar paneles
+        # Generate panels
         self.panel_data, self.wing_area, self.panel_areas = generate_plane_panels(self)
         print(f"wing_area: {self.wing_area}")
 
-        # Calcular curvatura
+        # Curvature calculation
         self.dz_c = curvature(self)
         print(f"Length of dz_c: {len(self.dz_c)}")
         print(f"Length of panel_data: {len(self.panel_data)}")
 
-        # Verificar consistencia
+        # Consistency check
         if len(self.dz_c) != len(self.panel_data):
             raise ValueError(f"Inconsistencia: len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}")
 
@@ -227,7 +227,7 @@ class VLM:
         self.calculate_discretization()
         self.calculate_wing_lift()
 
-# Calculate the aerodynamic influence coefficient matrix
+""" # Calculate the aerodynamic influence coefficient matrix
 def calculate_P_ij_(panel_data, u, dz_c, alpha, beta):
     n_controls                          = len(panel_data)
     P_ij                                = np.zeros((n_controls, n_controls))
@@ -277,7 +277,7 @@ def calculate_P_ij_(panel_data, u, dz_c, alpha, beta):
             P_ij_resis[i, j]    = V_AInf_ + V_BInf_
 
     return P_ij, P_ij_resis, w_i, panel_length
-
+ """
 def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
     """
     Calculates the coefficient matrix P_ij for the VLM method.
@@ -300,7 +300,7 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
             xj, yj, zj = panel_j[2][0]  # Node 1 of panel j
             xjf, yjf, zjf = panel_j[2][1]  # Node 2 of panel j
 
-            ## Vortex Head
+            # Vortex Head
             C = np.array([yi, xi, zi]) # Control point
             A = np.array([yj, xj, zj]) # Node 1
             B = np.array([yjf, xjf, zjf]) # Node 2
@@ -314,33 +314,37 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
 
             r0  = B - A # Vector AB
 
-            r1_norm = np.linalg.norm(r1) # Modulo de AC
-            r2_norm = np.linalg.norm(r2) # Modulo de BC
+            r1_norm = np.linalg.norm(r1) # Magnitude of AC
+            r2_norm = np.linalg.norm(r2) # Magnitude of BC
             
             # V_AB
-            cross_r1_r2 = np.cross(r1, r2) # Producto cruz entre AC y BC (vector normal al panel)
-            cross_r1_r2_norm = np.linalg.norm(cross_r1_r2) # Módulo del vector normal
+            cross_r1_r2 = np.cross(r1, r2) # Cross product between AC and BC (panel normal vector)
+            cross_r1_r2_norm = np.linalg.norm(cross_r1_r2) # Magnitude of the normal vector
 
-            r0r1 = np.dot(r0, r1) # Producto entre AB y AC
-            r0r2 = np.dot(r0, r2) # Producto entre AB y BC
+            r0r1 = np.dot(r0, r1) # Dot product between AB and AC
+            r0r2 = np.dot(r0, r2) # Dot product between AB and BC
             
-            psi = cross_r1_r2 / np.abs(cross_r1_r2_norm)**2 if cross_r1_r2_norm > 1e-12 else np.zeros(3) # Vector normal al panel dividido por el módulo al cuadrado
+            psi = cross_r1_r2 / np.abs(cross_r1_r2_norm)**2 if cross_r1_r2_norm > 1e-12 else np.zeros(3) # Normal vector divided by squared magnitude
             omega = r0r1 / r1_norm - r0r2 / r2_norm if r1_norm > 1e-12 and r2_norm > 1e-12 else 0
             V_AB = np.dot(psi, omega) / (4 * np.pi)
             V_AB_ = V_AB[1] * normal_vector[1] + V_AB[2] * normal_vector[2]
             
-            # Cálculo de V_AInf y V_BInf como vectores
+            # Calculation of V_AInf and V_BInf as vectors
             V_AInf = np.zeros(3)
-            V_AInf[1] = (r1[2] / (r1[2]**2+r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1[2]**2 > 1e-6 else 0 # Componente en dirección j
-            V_AInf[2] = (r1_[1] / (r1[2]**2+r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1_[1]**2 > 1e-6 else 0 # Componente en dirección k
+            # j-component
+            V_AInf[1] = (r1[2] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1[2]**2 > 1e-6 else 0
+            # k-component
+            V_AInf[2] = (r1_[1] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1_[1]**2 > 1e-6 else 0
             V_AInf_ = V_AInf[1] * normal_vector[1] + V_AInf[2] * normal_vector[2]
 
             V_BInf = np.zeros(3)
-            V_BInf[1] = - (r2[2] / (r2[2]**2+r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2[2]**2 > 1e-6 else 0
-            V_BInf[2] = - (r2_[1] / (r2[2]**2+r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2_[1]**2 > 1e-6 else 0
+            # j-component
+            V_BInf[1] = - (r2[2] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2[2]**2 > 1e-6 else 0
+            # k-component
+            V_BInf[2] = - (r2_[1] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2_[1]**2 > 1e-6 else 0
             V_BInf_ =  V_BInf[1] * normal_vector[1] + V_BInf[2] * normal_vector[2]
 
-            # Construcción de la matriz de coeficientes ...
+            # Construction of the coefficient matrix
             P_ij[i, j] = V_AB_ + V_AInf_ + V_BInf_
             P_ij_resis[i, j] = V_AInf_ + V_BInf_
             
@@ -353,7 +357,7 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
     normal_vector_ = np.array([np.zeros(3) for _ in range(n_controls)])
     panel_length = np.zeros(n_controls)
 
-    # Verificar que dz_c tenga la misma longitud que panel_data
+    # Check that dz_c has the same length as panel_data
     if len(dz_c) != n_controls:
         raise ValueError(f"Error: len(dz_c) = {len(dz_c)} no coincide con len(panel_data) = {n_controls}")
 
@@ -361,17 +365,16 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
         normal = panel_i[4][0]
         normal_ = np.array([normal[1], normal[0], normal[2]])
 
-        # Calcular longitud del panel
+        # Panel length calculation
         panel_length[i] = np.linalg.norm(np.array(panel_i[1][0]) - np.array(panel_i[1][3]))
 
-        # Calcular curvatura
-        if panel_length[i] != 0:  # Evitar división por cero
+        # Curvature calculation
+        if panel_length[i] != 0:  # Cero division guard
             deltaZ[i] = dz_c[i] / panel_length[i]
         else:
             deltaZ[i] = 0
         deltaP = np.atan(deltaZ[i])
 
-        # Resto del código sin cambios
         cos_deltaP = np.cos(deltaP)
         sin_deltaP = np.sin(deltaP)
         A = np.array([
@@ -395,7 +398,7 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
     return w_i, normal_vector_, panel_length, u_
 
 def plane(self):
-    # 1. Extraer atributos 
+    # 1. Extract necessary attributes
     panel_data     = self.panel_data
     u, dz_c        = self.u, self.dz_c
     alpha, beta    = self.alpha, self.beta
@@ -406,30 +409,30 @@ def plane(self):
     wing_area      = self.wing_area
     panel_areas    = self.panel_areas
 
-    # 2. Resolver sistema P·γ = w
+    # 2. System resulotion P·γ = w
     P_ij, P_ij_resis, w_i, panel_lengths, self.u_ = calculate_P_ij(panel_data, u, dz_c, alpha, beta)
     gammas    = np.linalg.solve(P_ij, w_i)
     W_i       = P_ij_resis.dot(gammas)
 
-    # 3. Parámetros aerodinámicos básicos
-    q_total   = 0.5 * rho * u**2 * wing_area            # carga dinámica total del ala
-    q_local   = 0.5 * rho * u**2                         # carga dinámica local (por panel)
+    # 3. Dynamic pressure (total and local)
+    q_total = 0.5 * rho * u**2 * wing_area      # total dynamic pressure (wing area)
+    q_local = 0.5 * rho * u**2                  # local dynamic pressure (per panel)
 
-    # 4. Separar subconjuntos de paneles
+    # 4. Separate panel subsets
     num_wing_panels = n * m
     num_hs_panels   = n_hs * m_hs
     num_vs_panels   = n_vs * m_vs
     
-    # Áreas por sub-superficie
+    # Area per surface 
     A_wing = panel_areas[:num_wing_panels]
     A_hs   = panel_areas[num_wing_panels:num_wing_panels + num_hs_panels]
     A_vs   = panel_areas[num_wing_panels + num_hs_panels:num_wing_panels + num_hs_panels + num_vs_panels]
 
-    # 5. Calcular lift y drag elementales por panel
+    # 5. Lift and drag calculation per panel
     lift_per_panel = rho * u * gammas * panel_lengths    
     drag_per_panel = - rho * W_i * gammas * panel_lengths
 
-    # 6. Función auxiliar para sumar y obtener coeficientes locales
+    # 6. Auxiliary function to compute sums and coefficients
     def coefs(forces, areas, n_sub, m_sub):
         """
         Dado un vector forces (len = n_sub*m_sub), y vector areas (mismo len),
@@ -439,10 +442,10 @@ def plane(self):
         mat_f = forces.reshape(n_sub, m_sub)
         mat_A = areas.reshape(n_sub, m_sub)
 
-        sum_fila   = mat_f.sum(axis=1)       # array longitud n_sub
+        sum_fila   = mat_f.sum(axis=1)       # array length n_sub
         total      = sum_fila.sum()          # escalar
 
-        area_strip = mat_A.sum(axis=1)       # array longitud n_sub
+        area_strip = mat_A.sum(axis=1)       # array length n_sub
         CL_local   = sum_fila / (q_local * area_strip)
 
         return sum_fila, total, CL_local
@@ -461,7 +464,7 @@ def plane(self):
         lift_tot_hs = 0.0
         CL_locals_hs = np.zeros(n_hs)
 
-    # 9. VS: lift (mismos n_hs, m_hs)
+    # 9. VS: lift (same n_hs, m_hs)
     if n_vs != 0:
         lift_vs_vec = lift_per_panel[num_wing_panels + num_hs_panels:]
         lift_sum_vs, lift_tot_vs, CL_locals_vs = coefs(lift_vs_vec, np.array(A_vs), n_vs, m_vs)
@@ -471,7 +474,7 @@ def plane(self):
         lift_tot_vs = 0.0
         CL_locals_vs = np.zeros(n_vs)
 
-    # 10. Resumen global de lift
+    # 10. Global lift summary
     lift_sum_dict  = {'lift_wing': lift_sum_wing, 'lift_hs': lift_sum_hs, 'lift_vs': lift_sum_vs}
     lift_total_all = lift_tot_wing + lift_tot_hs + lift_tot_vs
     CL_total       = lift_total_all / q_total
@@ -499,14 +502,14 @@ def plane(self):
         drag_sum_vs = np.zeros(n_vs)
         drag_tot_vs = 0.0
 
-    # 14. Resumen global de drag
+    # 14. Total drag summary
     drag_sum_dict  = {'drag_wing': drag_sum_wing, 'drag_hs': drag_sum_hs, 'drag_vs': drag_sum_vs}
     drag_total_all = drag_tot_wing + drag_tot_hs + drag_tot_vs
     CD_total       = drag_total_all / q_total
 
-    # 15. Coeficientes de drag locales (por strip) para cada sub-superficie
+    # 15. Local drag coefficients (per strip) for each sub-surface
     #     CD_local_i = drag_strip_i / (q_local * area_strip_i)
-    #    (Reutilizamos area_strip calculado en la función auxiliar)
+    #     (We reuse area_strip calculated in the auxiliary function)
     _, _, CD_locals_wing = coefs(drag_wing_vec, np.array(A_wing), n, m)
 
     if n_hs != 0:
@@ -523,12 +526,12 @@ def plane(self):
         'CD_vs':   CD_locals_vs
     }
 
-    # 16. Devolver todos los resultados necesarios
+    # 16. Return all results
     return (
         w_i,
         P_ij,
         gammas,
-        lift_wing_vec,             # vectores individuales si se necesitan
+        lift_wing_vec,            
         lift_total_all,
         lift_sum_dict,
         CL_total,

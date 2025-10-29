@@ -23,16 +23,24 @@
                 <button type="button" class="action-button" onclick="plotAirfoil()">Make Plot</button>
                 <button type="button" class="action-button" onclick="saveAirfoil()">Save</button>
                 <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
+                <button type="button" class="action-button" onclick="saveAirfoilAdvanced()">Save advanced</button>
+                <button type="button" class="action-button" onclick="loadAirfoilAdvanced()">Load advanced</button>
                 <button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
         </form>
     </div>
     <div id="plot-area" aria-live="polite"></div>
-    <div id="message-container"></div>
 </div>
 
 <script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar config manager para airfoil
+    if (window.UnifiedConfigManager) {
+        window.configManager = new UnifiedConfigManager();
+    }
+});
+
 function getFormDataAsJson(formId) {
     const form = document.getElementById(formId);
     return JSON.stringify(Object.fromEntries(new FormData(form)));
@@ -54,6 +62,13 @@ function plotAirfoil() {
         const filename = `naca_${document.getElementById("naca").value}_airfoil`;
         const plotData = JSON.parse(data.plot);
         if (data.plot) {
+            // Remove the specific message from plot-area if present
+            const plotArea = document.getElementById('plot-area');
+            const unwantedMsg = plotArea.querySelector('p[style*="New plane configuration loaded"]');
+            if (unwantedMsg) {
+                unwantedMsg.remove();
+            }
+            plotArea.innerHTML = '';
             const config = {
                     displaylogo: false,
                     displayModeBar: true,
@@ -68,22 +83,6 @@ function plotAirfoil() {
 }
 
 function saveAirfoil() {
-    const messageContainer = document.querySelector('.message-container');
-    
-    function showMessage(text, type) {
-        const existingMessages = messageContainer.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
-        
-        const message = document.createElement('div');
-        message.className = `message ${type}`;
-        message.textContent = text;
-        messageContainer.appendChild(message);
-        
-        setTimeout(() => {
-            message.remove();
-        }, 5000);
-    }
-
     fetch("/save_airfoil", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -106,39 +105,24 @@ function saveAirfoil() {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        showMessage(`Airfoil ${naca} saved successfully.`, 'success');
+        window.messageCenter.success(`Airfoil ${naca} saved successfully.`);
     })
     .catch(error => {
         console.error("Error saving airfoil:", error);
-        showMessage(`Error: ${error.message}`, 'error');
+        window.messageCenter.error(`Error: ${error.message}`);
     });
 }
 
 function loadData(input) {
-    const messageContainer = document.querySelector('.message-container');
-    
-    function showMessage(text, type) {
-        const existingMessages = messageContainer.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
-        
-        const message = document.createElement('div');
-        message.className = `message ${type}`;
-        message.textContent = text;
-        messageContainer.appendChild(message);
-        
-        setTimeout(() => {
-            message.remove();
-        }, 5000);
-    }
 
     const file = input.files[0];
     if (!file) {
-        showMessage("No file selected.", 'error');
+        window.messageCenter.error("No file selected.");
         return;
     }
 
     if (!file.name.endsWith('.json')) {
-        showMessage("Please select a JSON file.", 'error');
+        window.messageCenter.error("Please select a JSON file.");
         return;
     }
 
@@ -166,23 +150,23 @@ function loadData(input) {
                     document.getElementById('alpha').value = responseData.airfoil.alpha || '';
                     document.getElementById('chord').value = responseData.airfoil.chord || '';
                     document.getElementById('n').value = responseData.airfoil.n || '';
-                    showMessage(`Airfoil ${responseData.airfoil.naca || 'data'} loaded successfully.`, 'success');
+                    window.messageCenter.success(`Airfoil ${responseData.airfoil.naca || 'data'} loaded successfully.`);
                 } else {
                     throw new Error(responseData.message || 'No airfoil data received');
                 }
             })
             .catch(error => {
                 console.error('Error loading airfoil:', error);
-                showMessage(`Error: ${error.message}`, 'error');
+                window.messageCenter.error(`Error: ${error.message}`);
             });
         } catch (error) {
             console.error('Error parsing JSON:', error);
-            showMessage('Error: Invalid JSON file.', 'error');
+            window.messageCenter.error(`Error: ${error.message}`);
         }
     };
     reader.onerror = function() {
         console.error('Error reading file:', reader.error);
-        showMessage('Error: Unable to read file.', 'error');
+        window.messageCenter.error(`Error: ${reader.error.message}`);
     };
     reader.readAsText(file);
 }

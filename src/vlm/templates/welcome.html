@@ -1,25 +1,156 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="welcome">
-    <div class="welcome-content">
-        <img src="{{ url_for('static', filename='images/icon.svg') }}" alt="VLMPy Logo" width="100">
-        <h1>Welcome to VLMPy!</h1>
-        <h2>Your go-to tool for Vortex Lattice Method simulations</h2>
-        <p>VLMPy is a user-friendly tool for simulating and analyzing lifting surfaces using the Vortex Lattice Method (VLM).</p>
-        <a href="/airfoil" class="cta-button">Get Started</a>
-    </div>
-    <div class="welcome-bg-container">
-        <img src="{{ url_for('static', filename='images/background.svg') }}" alt="Background SVG" class="welcome-bg-svg">
-    </div>
+<div class="welcome-container">
+    <!-- Hero Section -->
+    <section class="landing-hero">
+        <div class="landing-hero-left">
+            <span class="eyebrow">Optimizado para investigación y docencia</span>
+            <h2 class="hero-title">Simula, visualiza y aprende aerodinámica <br> con resultados inmediatos.</h2>
+            <p class="hero-subtitle">Interfaz moderna, exportación en SVG y herramientas para comparar VLM con datos experimentales — todo pensado para estudiantes y desarrolladores.</p>
+
+            <div class="landing-hero-ctas">
+                <a class="landing-btn primary" href="/airfoil">Generar análisis</a>
+                <a class="landing-btn secondary" href="https://github.com/yourusername/VLMPy" target="_blank">Ver en GitHub</a>
+            </div>
+
+            <div class="landing-hero-meta">
+                <div class="landing-badge">Open Source</div>
+                <div class="meta-text">Compatibilidad: Python · Flask · Plotly</div>
+            </div>
+        </div>
+
+        <aside class="landing-hero-right">
+            <div class="landing-preview-card">
+                <div class="landing-preview-header">
+                    <strong>Vista rápida</strong>
+                    <small>SVG · Export</small>
+                </div>
+
+                <div class="landing-preview-content">
+                    <div style="display:flex;gap:0.6rem;align-items:center">
+                        <div style="flex:1">
+                            <div class="landing-line" style="width:85%"></div>
+                            <div class="landing-line" style="width:95%"></div>
+                            <div class="landing-line" style="width:70%"></div>
+                            <div class="landing-line" style="width:90%"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top:1rem;font-size:0.85rem;color:var(--landing-muted)">
+                        <i class="fas fa-check-circle" style="color:var(--success-color)"></i> Análisis en tiempo real
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </section>
+
+    <!-- Features Section -->
+    <section class="landing-features">
+        <h3>Características principales</h3>
+        <div class="landing-features-grid">
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-1)">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <h4>Visualización interactiva</h4>
+                <p>Gráficos exportables en SVG y controles para inspeccionar cada sección del ala usando Plotly.</p>
+            </div>
+
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-2)">
+                    <i class="fas fa-bolt"></i>
+                </div>
+                <h4>Resultados inmediatos</h4>
+                <p>Optimizado para cálculos rápidos del método VLM con clara visualización de resultados numéricos.</p>
+            </div>
+
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-1)">
+                    <i class="fas fa-code"></i>
+                </div>
+                <h4>Integración Flask + Plotly</h4>
+                <p>Diseñado para integrarse con Flask y Plotly, con endpoints REST listos para usar.</p>
+            </div>
+
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-2)">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <h4>Ideal para aprendizaje</h4>
+                <p>Interfaz intuitiva perfecta para estudiantes e investigadores de aerodinámica computacional.</p>
+            </div>
+
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-1)">
+                    <i class="fas fa-ruler-combined"></i>
+                </div>
+                <h4>Definición NACA</h4>
+                <p>Soporte completo para perfiles NACA con parámetros personalizables y validación en tiempo real.</p>
+            </div>
+
+            <div class="landing-feature-card">
+                <div class="landing-feature-icon" style="background:var(--landing-accent-2)">
+                    <i class="fas fa-plane"></i>
+                </div>
+                <h4>Análisis completo</h4>
+                <p>Simula alas completas con flaps, estabilizadores verticales y horizontales, y múltiples secciones.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="landing-cta">
+        <h3>¿Listo para comenzar?</h3>
+        <p>Empieza a analizar tus diseños aerodinámicos ahora mismo con VLMPy</p>
+        <a class="landing-btn primary" href="/airfoil">Comenzar análisis</a>
+    </section>
 </div>
 
 <script>
-window.addEventListener('scroll', () => {
-    const bg = document.querySelector('.welcome-bg-svg');
-    if (bg) {
-        const scrollPosition = window.scrollY;
-        bg.style.transform = `translateY(${scrollPosition * 0.5}px)`;
+// Script para manejar el menú móvil en la landing page
+document.addEventListener('DOMContentLoaded', function() {
+    const landingMenuToggle = document.getElementById('landing-menu-toggle');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.overlay');
+
+    if (landingMenuToggle && sidebar) {
+        landingMenuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+            const isActive = sidebar.classList.contains('active');
+            landingMenuToggle.setAttribute('aria-expanded', isActive);
+        });
     }
+
+    // Cerrar sidebar al hacer click en overlay
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('active');
+            overlay.classList.remove('active');
+            if (landingMenuToggle) {
+                landingMenuToggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
+    // Marcar la página como welcome-page para aplicar estilos especiales
+    document.body.classList.add('welcome-page');
+
+    // Efecto parallax suave para el hero
+    let ticking = false;
+    window.addEventListener('scroll', function() {
+        if (!ticking) {
+            window.requestAnimationFrame(function() {
+                const scrolled = window.pageYOffset;
+                const hero = document.querySelector('.landing-hero');
+                if (hero && scrolled < 800) {
+                    hero.style.transform = `translateY(${scrolled * 0.1}px)`;
+                    hero.style.opacity = 1 - (scrolled * 0.001);
+                }
+                ticking = false;
+            });
+            ticking = true;
+        }
+    });
 });
 </script>
 {% endblock %}
