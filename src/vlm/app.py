@@ -1028,7 +1028,7 @@ def validate_airfoil_config():
 if __name__ == "__main__":
     optimize_resources()
     try:
-        app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
-        #   ui.run()
+        #app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
+        ui.run()
     finally:
         thread_pool.shutdown(wait=True)                                                                                                                                                                 
