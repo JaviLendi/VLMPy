@@ -1,0 +1,21 @@
+{
+  "type": "airfoil",
+  "naca": "3215",
+  "u": 50.0,
+  "alpha": 0.0,
+  "chord": 1.0,
+  "n": 1000,
+  "description": "",
+  "parameters": {
+    "velocity": 50.0,
+    "angle_of_attack": 0.0,
+    "chord_length": 1.0,
+    "points": 1000
+  },
+  "metadata": {
+    "version": "1.0",
+    "created_at": "2025-10-29T19:04:44.990080",
+    "modified_at": "2025-10-29T19:04:44.990085",
+    "checksum": "976fe7c09f7be9d8eab53b8c37780c0e"
+  }
+}
