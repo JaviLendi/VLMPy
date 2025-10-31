@@ -232,6 +232,10 @@ html, body {
     padding: 0;
 }
 
+.config-description {
+    background-color: var(--secondary-bg);
+}
+
 /* Responsive Navbar with Hamburger */
 @media (max-width: 768px) {
     .navbar {
