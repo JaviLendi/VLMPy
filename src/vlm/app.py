@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Optional
+from datetime import datetime
 
 # Third-party imports kept together; optional/possibly heavy imports guarded for clearer errors
 try:
@@ -275,8 +276,9 @@ def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: 
         vlm = VLM(plane, u, rho, alpha, beta, n, m)
         # operación que depende de VLM
         vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
-        state_path = SAVED_STATES / f"{session_id}.pkl"
-        vlm.save_state(str(state_path))
+        #timestamp = datetime.now().strftime("%d%m%y%H%M%S")
+        #state_path = SAVED_STATES / f"{session_id}_{timestamp}.pkl"
+        #vlm.save_state(str(state_path))
         with vlm_sessions_lock:
             vlm_sessions[session_id] = vlm
         return {"status": "success", "message": "Wing design computed."}
@@ -473,6 +475,10 @@ def results():
         if vlm.results is None:
             future = thread_pool.submit(compute, vlm)
             vlm = future.result()
+            #save state after computation
+            timestamp = datetime.now().strftime("%d%m%y%H%M%S")
+            state_path = SAVED_STATES / f"{"results"}_{timestamp}.pkl"
+            vlm.save_state(str(state_path))
 
         wing_lift_total = np.sum(vlm.lift_sum.get('lift_wing', [])) if hasattr(vlm, 'lift_sum') else None
         hs_lift_total = np.sum(vlm.lift_sum.get('lift_hs', [])) if hasattr(vlm, 'lift_sum') else None
@@ -576,14 +582,33 @@ def load_airfoil():
 def load_vlm_state():
     try:
         session_id = session.get("session_id")
-        state_file = SAVED_STATES / f"{session_id}.pkl"
-        if not state_file.exists():
-            return jsonify({"status": "error", "message": "No saved state found"}), 404
+        if 'state_file' not in request.files:
+            return jsonify({"status": "error", "message": "No state_file provided"}), 400
+        file = request.files['state_file']
+        if file.filename == '':
+            return jsonify({"status": "error", "message": "No file selected"}), 400
+
+        # Path to load the state file
+        path = SAVED_STATES / file.filename
 
         with vlm_sessions_lock:
             if session_id not in vlm_sessions:
                 return jsonify({"status": "error", "message": "No active VLM session"}), 400
-            vlm_sessions[session_id].load_state(str(state_file))
+            vlm_sessions[session_id].load_state(str(path))
+            vlm = vlm_sessions[session_id]
+            #update vlm session
+            wing_lift_total = np.sum(vlm.lift_sum.get('lift_wing', [])) if hasattr(vlm, 'lift_sum') else None
+            hs_lift_total = np.sum(vlm.lift_sum.get('lift_hs', [])) if hasattr(vlm, 'lift_sum') else None
+            vs_lift_total = np.sum(vlm.lift_sum.get('lift_vs', [])) if hasattr(vlm, 'lift_sum') else None
+
+            cl = f"{vlm.CL:.4f}" if getattr(vlm, 'CL', None) is not None else "--"
+            cd = f"{vlm.CD:.4f}" if getattr(vlm, 'CD', None) is not None else "--"
+            total_lift = f"{vlm.lift:.2f}" if getattr(vlm, 'lift', None) is not None else "--"
+            total_drag = f"{vlm.drag:.2f}" if getattr(vlm, 'drag', None) is not None else "--"
+            wing_lift = f"{wing_lift_total:.2f}" if wing_lift_total is not None else "--"
+            hs_lift = f"{hs_lift_total:.2f}" if hs_lift_total is not None else "--"
+            vs_lift = f"{vs_lift_total:.2f}" if vs_lift_total is not None else "--"
+
         return jsonify({"status": "success", "message": "VLM state loaded successfully"}), 200
     except Exception as e:
         logger.exception("Error in /load_vlm_state")
@@ -1028,7 +1053,7 @@ def validate_airfoil_config():
 if __name__ == "__main__":
     optimize_resources()
     try:
-        app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
-        #ui.run()
+        #app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
+        ui.run()
     finally:
         thread_pool.shutdown(wait=True)                                                                                                                                                                 

@@ -21,13 +21,17 @@
             
             <div class="button-group">
                 <button type="button" class="action-button" onclick="plotAirfoil()">Make Plot</button>
-                <button type="button" class="action-button" onclick="saveAirfoil()">Save</button>
                 <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
-                <button type="button" class="action-button" onclick="saveAirfoilAdvanced()">Save advanced</button>
-                <button type="button" class="action-button" onclick="loadAirfoilAdvanced()">Load advanced</button>
-                <button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
-                <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
+            <h3>Manage Airfoil Configuration</h3>
+            <div class="button-group">
+                <button type="button" class="action-button" onclick="saveAirfoil()">Save airfoil coordinates (CSV)</button>
+                <button type="button" class="action-button" onclick="saveAirfoilAdvanced()">Save</button>
+                <button type="button" class="action-button" onclick="loadAirfoilAdvanced()">Load</button>
+                <!--<button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
+                <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">-->
+            </div>
+
         </form>
     </div>
     <div id="plot-area" aria-live="polite"></div>

@@ -74,7 +74,6 @@
             <div class="button-group">
                 <button type="button" class="action-button" onclick="plotData('/plot/LiftSection', 'LiftSection')">Lift</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/DragSection', 'DragSection')">Drag</button>
-                <button type="submit" class="action-button primary">Save</button>
             </div>
         </form>
         <h2>Analis for different angles of attack</h2>
@@ -86,19 +85,18 @@
                 </div>
              </section>
             <div class="button-group">
+                <button type="button" class="action-button" id="calculate-button" onclick="CalculateAngles()">Calculate</button>
+                <div id="calculate-spinner" class="spinner" style="display: none;"></div>
+            </div>
+            <div class="button-group">
                 <button type="button" class="action-button" onclick="plotData('/plot/CL-alpha', 'CL-alpha')">CL vs alpha</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CD-alpha', 'CD-alpha')">CD vs alpha</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CL-CD-alpha', 'CL-CD-alpha')">CL/CD vs alpha</button>
-                <button type="button" class="action-button" id="calculate-button" onclick="CalculateAngles()">Calculate</button>
-                <button type="submit" class="action-button primary">Save</button>
-                <div id="calculate-spinner" class="spinner" style="display: none;"></div>
             </div>
         </form>
     </div>
     <div id="plot-area" class="results-form-section" aria-live="polite"></div>
-    <div id="message-container"></div>
 </div>
-
 <script>
 // Populate state selector on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -136,19 +134,21 @@ function loadVLM() {
     })
     .then(response => response.json())
     .then(data => {
-        const msgContainer = document.getElementById('message-container');
-        msgContainer.innerHTML = `<div class="message ${data.status === 'success' ? 'success' : 'error'}">${data.message}</div>`;
         if (data.status === 'success') {
             // Clear any existing plots to ensure fresh data
             clearPlots();
+            window.messageCenter.success('VLM state loaded successfully.');
+        }
+        else {
+            window.messageCenter.error(`Error loading VLM state, use a valid .pkl file.`);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        const msgContainer = document.getElementById('message-container');
-        msgContainer.innerHTML = `<div class="message error">An error occurred while loading the VLM state.</div>`;
+        window.messageCenter.error('Failed to load VLM state.');
     });
 }
+
 
 function plotData(endpoint, title) {
     // Ensure we start fresh by clearing plots
