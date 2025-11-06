@@ -2,11 +2,87 @@
 {% block content %}
 <div class="container">
     <div class="form-section">
-        <h2>Plane Definition</h2>
+        <div class="form-group-header">
+            <h2 style="margin: 0;">Plane Definition</h2>
+            <button type="button" class="info-button" onclick="openInfo('plane-definition-info-popup')" aria-label="Show info about plane definition">
+            <span class="material-icons" aria-hidden="true">info</span>
+            </button>
+        </div>
+        <div id="plane-definition-info-popup" class="info-popup" tabindex="-1">
+            <h4>Plane Definition Info</h4>
+            <ul>
+            <li><b>Flight Condition:</b>
+                <ul>
+                <li><b>Flight Velocity:</b> Aircraft speed in meters per second (m/s). Determines aerodynamic forces.</li>
+                <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³). Affects lift and drag calculations.</li>
+                <li><b>Angle of Attack:</b> Angle between the wing chord and the airflow (degrees). Influences lift and stall behavior.</li>
+                <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees). Important for lateral stability.</li>
+                </ul>
+            </li>
+            <li><b>Wing Geometry:</b>
+                <ul>
+                <li><b>Chord Root/Tip:</b> Length of the wing at the root and tip (meters). Defines wing shape and area.</li>
+                <li><b>Span Fraction:</b> Fraction of total span for each section. Used to segment the wing for analysis.</li>
+                <li><b>Sweep:</b> Leading edge sweep angle (degrees). Affects aerodynamic characteristics and stability.</li>
+                <li><b>Dihedral:</b> Upward angle of the wings (degrees). Contributes to roll stability.</li>
+                <li><b>NACA Root/Tip:</b> Airfoil code at root and tip. Specifies the aerodynamic profile.</li>
+                <li><b>Flap:</b> Control surface parameters (start/end position, hinge chord, deflection angle/type). Used for lift and control augmentation.</li>
+                </ul>
+            </li>
+            <li><b>Horizontal Stabilizer:</b>
+                <ul>
+                <li><b>X/Z Translate:</b> Position along fuselage and vertical axis (meters). Sets stabilizer location.</li>
+                <li><b>NACA Root/Tip:</b> Airfoil code for stabilizer sections.</li>
+                <li><b>Chord Root/Tip:</b> Section lengths (meters).</li>
+                <li><b>Span Fraction:</b> Fraction of total span for each section.</li>
+                <li><b>Sweep/Dihedral:</b> Leading edge sweep and dihedral angles (degrees).</li>
+                <li><b>Alpha:</b> Angle of attack (degrees).</li>
+                </ul>
+            </li>
+            <li><b>Vertical Stabilizer:</b>
+                <ul>
+                <li><b>X/Z Translate:</b> Position along fuselage and vertical axis (meters).</li>
+                <li><b>NACA Root/Tip:</b> Airfoil code for stabilizer sections.</li>
+                <li><b>Chord Root/Tip:</b> Section lengths (meters).</li>
+                <li><b>Span Fraction:</b> Fraction of total span for each section.</li>
+                <li><b>Sweep:</b> Leading edge sweep angle (degrees).</li>
+                <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
+                <li><b>Alpha:</b> Angle of attack (degrees).</li>
+                </ul>
+            </li>
+            <li><b>Discretization:</b>
+                <ul>
+                <li><b>Panels Along Span:</b> Number of panels dividing the wing span. Higher numbers increase accuracy.</li>
+                <li><b>Panels Along Chord:</b> Number of panels dividing the wing chord. Controls resolution of aerodynamic calculations.</li>
+                </ul>
+            </li>
+            <li><b>Configuration Management:</b>
+                <ul>
+                <li><b>Save/Load:</b> Store and retrieve plane configurations as JSON files for repeatable analysis.</li>
+                </ul>
+            </li>
+            </ul>
+            <button type="button" onclick="document.getElementById('plane-definition-info-popup').style.display='none'">Close</button>
+        </div>
         <form id="wing-form" aria-label="Plane Definition Form">
             <!-- Flight Condition -->
             <section class="form-group">
-                <h3>Flight Condition</h3>
+                <div class="form-group-header">
+                    <h3 style="margin: 0;">Flight Condition</h3>
+                    <button type="button" class="info-button" onclick="document.getElementById('flight-condition-info-popup').style.display='block'" aria-label="Show info about flight condition">
+                        <span class="material-icons" aria-hidden="true">info</span>
+                    </button>
+                </div>
+                <div id="flight-condition-info-popup" class="info-popup" tabindex="-1">
+                    <h4>Flight Condition Info</h4>
+                    <ul>
+                        <li><b>Flight Velocity:</b> Speed of the aircraft in meters per second (m/s).</li>
+                        <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³).</li>
+                        <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming airflow (degrees).</li>
+                        <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees).</li>
+                    </ul>
+                    <button type="button" onclick="document.getElementById('flight-condition-info-popup').style.display='none'">Close</button>
+                </div>
                 {% for field in [
                     {"label": "Flight Velocity (m/s):", "id": "flight-velocity", "name": "u", "value": default_parameters.u, "step": "any"},
                     {"label": "Air Density (kg/m³):", "id": "air-density", "name": "rho", "value": default_parameters.rho, "step": "0.001"},
@@ -22,7 +98,28 @@
 
             <!-- Wing Geometry -->
             <section class="form-group">
-                <h3>Wing Geometry</h3>
+                <div class="form-group-header">
+                    <h3 style="margin: 0;">Wing Geometry</h3>
+                    <button type="button" class="info-button" onclick="document.getElementById('wing-geometry-info-popup').style.display='block'" aria-label="Show info about wing geometry">
+                        <span class="material-icons" aria-hidden="true">info</span>
+                    </button>
+                </div>
+                <div id="wing-geometry-info-popup" class="info-popup" tabindex="-1">
+                    <h4>Wing Geometry Info</h4>
+                    <p> Use the "Add Section" button to create multiple wing sections. For each section, define:</p>
+                    <ul>
+                        <li><b>Chord Root/Tip:</b> Length of the wing section at root/tip.</li>
+                        <li><b>Span Fraction:</b> Fraction of total span for this section.</li>
+                        <li><b>Sweep:</b> Leading edge sweep angle (degrees).</li>
+                        <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
+                        <li><b>NACA Root/Tip:</b> Airfoil code at root/tip.</li>
+                        <li><b>Flap:</b> Optional control surface parameters.</li>
+                    </ul>
+                    <a> You can define a flap or aileron for each section by specifying its start and end positions along the chord, hinge chord fraction, deflection angle, and type (simple or plain).</a>
+                    <p> Each section is defined relative to the previous one, allowing for complex wing shapes.</p>
+                    <p> You can remove the last section using the "Remove Section" button.</p>
+                    <button type="button" onclick="document.getElementById('wing-geometry-info-popup').style.display='none'">Close</button>
+                </div>
                 <div id="sections" aria-live="polite"></div>
                 <div class="button-group">
                     <button type="button" class="action-button" onclick="addSection()">Add Section</button>
@@ -32,7 +129,26 @@
 
             <!-- Horizontal Stabilizer -->
             <section class="stabilizer-section">
-                <h3>Horizontal Stabilizer</h3>
+                <div class="form-group-header">
+                    <h3 style="margin: 0;">Horizontal Stabilizer</h3>
+                    <button type="button" class="info-button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='block'" aria-label="Show info about horizontal stabilizer">
+                        <span class="material-icons" aria-hidden="true">info</span>
+                    </button>
+                </div>
+                <div id="horizontal-stabilizer-info-popup" class="info-popup" tabindex="-1">
+                    <h4>Horizontal Stabilizer Info</h4>
+                    <ul>
+                        <li><b>X Translate:</b> Position along the fuselage (meters).</li>
+                        <li><b>Z Translate:</b> Vertical position (meters).</li>
+                        <li><b>NACA Root/Tip:</b> Airfoil code at root/tip.</li>
+                        <li><b>Chord Root/Tip:</b> Length of the stabilizer section at root/tip (meters).</li>
+                        <li><b>Span Fraction:</b> Fraction of total span for this section.</li>
+                        <li><b>Sweep:</b> Leading edge sweep angle (degrees).</li>
+                        <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
+                        <li><b>Alpha:</b> Angle of attack (degrees).</li>
+                    </ul>
+                    <button type="button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='none'">Close</button>
+                </div>
                 <input type="hidden" name="horizontal_toggled[]" value="0">
                 <button type="button" class="toggle-button" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
                     Toggle Horizontal Stabilizer
@@ -60,7 +176,26 @@
 
             <!-- Vertical Stabilizer -->
             <section class="stabilizer-section">
-                <h3>Vertical Stabilizer</h3>
+                <div class="form-group-header">
+                    <h3 style="margin: 0;">Vertical Stabilizer</h3>
+                    <button type="button" class="info-button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='block'" aria-label="Show info about vertical stabilizer">
+                        <span class="material-icons" aria-hidden="true">info</span>
+                    </button>
+                </div>
+                <div id="vertical-stabilizer-info-popup" class="info-popup" tabindex="-1">
+                    <h4>Vertical Stabilizer Info</h4>
+                    <ul>
+                        <li><b>X Translate:</b> Position along the fuselage (meters).</li>
+                        <li><b>Z Translate:</b> Vertical position (meters).</li>
+                        <li><b>NACA Root/Tip:</b> Airfoil code at root/tip.</li>
+                        <li><b>Chord Root/Tip:</b> Length of the stabilizer section at root/tip (meters).</li>
+                        <li><b>Span Fraction:</b> Fraction of total span for this section.</li>
+                        <li><b>Sweep:</b> Leading edge sweep angle (degrees).</li>
+                        <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
+                        <li><b>Alpha:</b> Angle of attack (degrees).</li>
+                    </ul>
+                    <button type="button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='none'">Close</button>
+                </div>
                 <input type="hidden" name="vertical_toggled[]" value="0">
                 <button type="button" class="toggle-button" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
                     Toggle Vertical Stabilizer
@@ -87,7 +222,20 @@
 
             <!-- Discretization -->
             <section class="form-group">
-                <h3>Discretization</h3>
+                <div class="form-group-header">
+                    <h3 style="margin: 0;">Discretization</h3>
+                    <button type="button" class="info-button" onclick="document.getElementById('discretization-info-popup').style.display='block'" aria-label="Show info about discretization">
+                        <span class="material-icons" aria-hidden="true">info</span>
+                    </button>
+                </div>
+                <div id="discretization-info-popup" class="info-popup" tabindex="-1">
+                    <h4>Discretization Info</h4>
+                    <ul>
+                        <li><b>Panels Along Span:</b> Number of panels dividing the wing span.</li>
+                        <li><b>Panels Along Chord:</b> Number of panels dividing the wing chord.</li>
+                    </ul>
+                    <button type="button" onclick="document.getElementById('discretization-info-popup').style.display='none'">Close</button>
+                </div>
                 <div class="input-group">
                     <label for="panels-span">Panels Along Span:</label>
                     <input type="number" id="panels-span" name="n" value="{{ default_parameters.n }}" required aria-required="true">
@@ -105,11 +253,12 @@
                 <button type="button" class="action-button" onclick="plotData('/plot/discretization2D', 'Wing_Discretization2d')">Discretization 2D</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/geometry', 'Wing_Geometry')">Geometry 3D</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/discretization3D', 'Wing_Discretization3d')">Discretization 3D</button>
+                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
             </div>
+            <h3>Manage Plane Configuration</h3>
             <div class="buttons">
                 <button type="button" class="action-button" onclick="savePlaneAdvanced()">Save</button>
                 <button type="button" class="action-button" onclick="loadPlaneAdvanced()">Load</button>
-                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
         </form>
@@ -374,6 +523,61 @@ document.getElementById('wing-form').addEventListener('keydown', function(event)
         document.getElementById('calculate-button')?.click();
         document.getElementById('view-planform-button')?.click();
     }
+});
+
+
+// Close any info popup when clicking outside
+document.addEventListener('mousedown', function(event) {
+    document.querySelectorAll('.info-popup').forEach(function(popup) {
+        if (popup.style.display === 'block' && !popup.contains(event.target)) {
+            popup.style.display = 'none';
+        }
+    });
+});
+
+// Close any info popup when pressing Escape
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        document.querySelectorAll('.info-popup').forEach(function(popup) {
+            if (popup.style.display === 'block') {
+                popup.style.display = 'none';
+            }
+        });
+    }
+});
+
+/* abrir popup por id */
+function openInfo(id) {
+  const popup = document.getElementById(id);
+  // show
+  popup.style.display = 'block';
+  popup.setAttribute('aria-hidden', 'false');
+  popup.focus?.();
+}
+
+/* cerrar popup por id (opcional) */
+function closeInfo(id) {
+  const popup = document.getElementById(id);
+  if (!popup) return;
+  popup.style.display = 'none';
+  popup.setAttribute('aria-hidden', 'true');
+  const backdrop = document.querySelector('.info-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+/* cerrar todos (útil al click fuera o con ESC) */
+function closeAllInfo() {
+  document.querySelectorAll('.info-popup').forEach(p => {
+    p.style.display = 'none';
+    p.setAttribute('aria-hidden', 'true');
+  });
+  const backdrop = document.querySelector('.info-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+/* cerrar con Escape */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAllInfo();
 });
 
 // DOM initialization and default plane population
