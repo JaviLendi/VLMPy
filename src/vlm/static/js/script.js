@@ -11,6 +11,15 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingSpinner: document.getElementById('loading-spinner')
     };
 
+    if (DOM.plotArea && window.ResizeObserver) {
+        const plotResizeObserver = new ResizeObserver(() => {
+            if (DOM.plotArea.data && window.Plotly) {
+                Plotly.Plots.resize(DOM.plotArea);
+            }
+        });
+        plotResizeObserver.observe(DOM.plotArea);
+    }
+
     // Debug log
     console.log(
         'Initializing script.js. Sidebar:', !!DOM.sidebar,
@@ -157,19 +166,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Parse and create plot
-            const plotData = JSON.parse(data.plot);
+            // The optimized plot endpoint returns an object; accept the old
+            // string format as a compatibility fallback for legacy routes.
+            const plotData = typeof data.plot === 'string'
+                ? JSON.parse(data.plot)
+                : data.plot;
             const config = {
                 displaylogo: false,
                 modeBarButtonsToRemove: ['lasso2d'],
                 displayModeBar: true,
+                responsive: true,
                 toImageButtonOptions: {
                     filename,
                     format: 'svg'
                 }
             };
 
-            Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
+            // Keep the current camera and reuse the existing Plotly scene.
+            plotData.layout.uirevision = filename || endpoint;
+            plotData.layout.autosize = true;
+            const plotPromise = DOM.plotArea.data
+                ? Plotly.react(DOM.plotArea, plotData.data, plotData.layout, config)
+                : Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
+            plotPromise.catch(error => {
+                console.error('[plotData] Render error:', error);
+            });
+            plotPromise.then(() => Plotly.Plots.resize(DOM.plotArea));
         })
         .catch(error => {
             console.error('[plotData] Error:', error);

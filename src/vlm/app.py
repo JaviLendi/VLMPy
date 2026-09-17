@@ -56,9 +56,6 @@ except Exception as e:
 
 import re
 
-# Plotly default format
-pio.kaleido.scope.default_format = "svg"
-
 # Local imports (asegúrate que el path '../' es correcto)
 import sys
 sys.path.append('../')
@@ -181,6 +178,8 @@ vlm_sessions_lock = Lock()
 
 default_cache: Dict[str, Any] = {}
 sessions_lock = Lock()  # for short duration disk writes / critical sections
+plot_cache: Dict[str, Any] = {}
+PLOT_CACHE_MAX_ENTRIES = 64
 
 # Helpers for parsing and validation (fast, safe, small overhead)
 def safe_float(val: Any, default: float = 0.0) -> float:
@@ -454,15 +453,8 @@ def results():
     def compute(vlm: VLM):
         if vlm is None:
             raise ValueError("VLM object is not initialized")
-        if vlm.wing_geometry is None:
-            logger.info("Calculating geometry...")
-            vlm.calculate_geometry()
-        if vlm.panel_data is None:
-            logger.info("Calculating discretization...")
-            vlm.calculate_discretization()
-        if not hasattr(vlm, 'lift'):
-            logger.info("Calculating wing lift...")
-            vlm.calculate_wing_lift()
+        logger.info("Ensuring VLM geometry, discretization, and solution are current...")
+        vlm.calculate_wing_lift()
         return vlm
 
     try:
@@ -472,9 +464,10 @@ def results():
             logger.error("VLM not initialized despite session check")
             return redirect(url_for("plane_route"))
 
-        if vlm.results is None:
-            future = thread_pool.submit(compute, vlm)
-            vlm = future.result()
+        previous_results = vlm.results
+        future = thread_pool.submit(compute, vlm)
+        vlm = future.result()
+        if vlm.results is None or previous_results is None:
             #save state after computation
             timestamp = datetime.now().strftime("%d%m%y%H%M%S")
             state_path = SAVED_STATES / f"{"results"}_{timestamp}.pkl"
@@ -614,6 +607,121 @@ def load_vlm_state():
         logger.exception("Error in /load_vlm_state")
         return jsonify({"status": "error", "message": f"Failed to load state: {e}"}), 500
 
+# STL generation endpoint
+@app.route('/generate_stl', methods=['GET', 'POST'])
+@session_required
+def generate_stl():
+    """
+    Genera archivo STL con perfil NACA completo desde sesión VLM
+
+    Parámetros opcionales (GET/POST):
+    - naca_resolution: int (50-200) - Resolución del perfil NACA (default: 80)
+    - format: str ('ascii'|'binary') - Formato del STL (default: 'binary')
+    - filename: str - Nombre del archivo (default: 'wing_{session_id}.stl')
+    """
+    try:
+        session_id = session.get("session_id")
+
+        # Obtener parámetros
+        if request.method == 'POST':
+            data = request.get_json() or {}
+        else:
+            data = request.args.to_dict()
+
+        naca_resolution = safe_int(data.get('naca_resolution', 80), 80)
+        stl_format = data.get('format', 'binary')
+        filename = data.get('filename', f'wing_{session_id}.stl')
+
+        # Validar parámetros
+        if not (30 <= naca_resolution <= 200):
+            return jsonify({
+                "status": "error", 
+                "message": "naca_resolution must be between 30 and 200"
+            }), 400
+
+        if stl_format not in ['ascii', 'binary']:
+            return jsonify({
+                "status": "error", 
+                "message": "format must be 'ascii' or 'binary'"
+            }), 400
+
+        # Obtener objeto VLM de la sesión
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+
+        if not vlm:
+            return jsonify({
+                "status": "error", 
+                "message": "VLM not initialized. Please design a wing first."
+            }), 400
+
+        # Verificar que existe la función de conversión a STL
+        try:
+            from lib.wing_to_stl_improved import wing_to_stl_with_naca_profile
+        except ImportError:
+            return jsonify({
+                "status": "error",
+                "message": "STL generation module not found. Please ensure 'wing_to_stl_improved' is available."
+            }), 500
+
+        # Generar STL con perfil NACA
+        logger.info(f"Generating STL for session {session_id} with NACA resolution {naca_resolution}")
+
+        # Crear directorio temporal si no existe
+        temp_dir = BASE_DIR / "temp_stl"
+        temp_dir.mkdir(exist_ok=True)
+
+        output_path = temp_dir / filename
+
+        # Ejecutar generación en thread pool para no bloquear
+        def generate():
+            wing_mesh = wing_to_stl_with_naca_profile(
+                vlm,
+                output_filename=str(output_path),
+                naca_resolution=naca_resolution,
+                format=stl_format
+            )
+            return wing_mesh
+
+        future = thread_pool.submit(generate)
+        wing_mesh = future.result(timeout=60)  # Timeout de 60 segundos
+
+        if wing_mesh is None or not output_path.exists():
+            return jsonify({
+                "status": "error",
+                "message": "Failed to generate STL file"
+            }), 500
+
+        # Enviar archivo al usuario
+        logger.info(f"STL generated successfully: {output_path}")
+
+        return send_file(
+            str(output_path),
+            mimetype='model/stl',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except ImportError as e:
+        logger.exception("Import error in /generate_stl")
+        return jsonify({
+            "status": "error",
+            "message": f"Missing required module: {e}"
+        }), 500
+    except TimeoutError:
+        logger.error("STL generation timeout")
+        return jsonify({
+            "status": "error",
+            "message": "STL generation timed out (>60s). Try reducing naca_resolution."
+        }), 500
+    except Exception as e:
+        logger.exception("Error in /generate_stl")
+        return jsonify({
+            "status": "error",
+            "message": f"Server error: {e}"
+        }), 500
+
+
 # Optimized plot dispatch endpoint
 @app.route('/plot/<plot_type>', methods=['GET', 'POST'])
 @session_required
@@ -636,6 +744,21 @@ def plot_data(plot_type):
             return vlm_obj
 
         vlm = thread_pool.submit(ensure_vlm_ready, vlm).result()
+        data_key = json.dumps(data, sort_keys=True, default=str)
+        cache_key = json.dumps({
+            "session_id": session_id,
+            "plot_type": plot_type,
+            "data": data_key,
+            "geometry": getattr(vlm, '_geometry_cache_key', None),
+            "discretization": getattr(vlm, '_discretization_cache_key', None),
+            "solution": getattr(vlm, '_solution_state_key', None),
+            "theme": session.get('effective_mode', 'Light')
+        }, sort_keys=True, default=str)
+        with sessions_lock:
+            cached_plot = plot_cache.get(cache_key)
+        if cached_plot is not None:
+            return jsonify({"plot": cached_plot, "cached": True})
+
         fig = go.Figure()
 
         # Plot dispatch table for clarity and speed
@@ -682,7 +805,12 @@ def plot_data(plot_type):
 
         fig = apply_plotly_theme(fig_result)
         plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-        return jsonify({"plot": plot_json})
+        plot_payload = json.loads(plot_json)
+        with sessions_lock:
+            if len(plot_cache) >= PLOT_CACHE_MAX_ENTRIES:
+                plot_cache.pop(next(iter(plot_cache)))
+            plot_cache[cache_key] = plot_payload
+        return jsonify({"plot": plot_payload, "cached": False})
     except Exception as e:
         logger.exception(f"Error en /plot/{plot_type}")
         return jsonify({"status": "error", "message": str(e)}), 500

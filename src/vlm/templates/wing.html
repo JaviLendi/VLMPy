@@ -253,6 +253,7 @@
                 <button type="button" class="action-button" onclick="plotData('/plot/discretization2D', 'Wing_Discretization2d')">Discretization 2D</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/geometry', 'Wing_Geometry')">Geometry 3D</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/discretization3D', 'Wing_Discretization3d')">Discretization 3D</button>
+                <button type="button" class="action-button" onclick="generate_stl()">Generate STL</button>
                 <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
             </div>
             <h3>Manage Plane Configuration</h3>
@@ -586,5 +587,40 @@ document.addEventListener('DOMContentLoaded', () => {
         populateFormWithConfig(window.defaultPlane);
     }
 });
+
+function generate_stl() {
+    const form = document.getElementById("wing-form");
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    fetch('/generate_stl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})  // Send empty body for defaults, or add parameters if needed
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.message || 'Error generating STL'); });
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'wing.stl';  // Default filename, can be customized
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        window.messageCenter.success('STL file generated and downloaded successfully.');
+    })
+    .catch(error => {
+        console.error('Error generating STL:', error);
+        window.messageCenter.error(`Error generating STL: ${error.message}`);
+    });
+}
+
 </script>
 {% endblock %}

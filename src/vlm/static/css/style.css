@@ -548,7 +548,22 @@ html, body {
 #plot-area {
     flex: 2;
     min-width: 40%;
+    min-height: min(78vh, 900px);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem;
+}
+
+#plot-area .plotly-graph-div,
+#plot-area .js-plotly-plot,
+#plot-area .plot-container,
+#plot-area .svg-container,
+#plot-area .gl-container {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0;
+    flex: 1 1 auto;
 }
 
 /* Typography */
@@ -1497,6 +1512,10 @@ input:focus, select:focus {
 
     .form-section, #plot-area, .results-form-section {
         max-height: 100%;
+    }
+
+    #plot-area {
+        min-height: 65vh;
     }
 
     .main-content {

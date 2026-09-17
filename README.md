@@ -50,11 +50,13 @@
 - **Accurate VLM Implementation**: Compute aerodynamic coefficients ($C_L$, $C_D$, moments) for wing configurations.
 - **Interactive Visualization**: 2D/3D plots of lift distribution, pressure coefficients, and geometry using Plotly and Matplotlib.
 - **Customizable Geometry**: Define wing parameters like sweep, dihedral, taper, and control surfaces.
+- **External Geometry Roadmap**: Plan support for OpenVSP workflows and STL surface-mesh inspection and import, subject to explicit unit, coordinate, component-mapping, and aerodynamic-panelization validation.
 - **Flexible Flight Conditions**: Analyze multiple angles of attack, sideslip angles, and airspeeds.
 - **NACA Airfoil Support**: Generate and analyze NACA airfoil profiles.
 - **Modular Architecture**: Extensible Python codebase for custom analyses and integration with NumPy, Matplotlib, and more.
 - **User-Friendly Interface**: Intuitive Python API, ready-to-use executables, and Jupyter notebook examples.
 - **Comprehensive Documentation**: Step-by-step guides and practical examples.
+- **Performance instrumentation**: Cached VLM stages, vectorized influence assembly, and optimized Plotly rendering. See [the performance validation guide](docs/README-performance.md).
 
 ---
 ### Screenshots
@@ -131,6 +133,12 @@
 - **Web Interface**: Run `app.py` to access the interactive web app at [http://localhost:5000](http://localhost:5000).
 
 Example scripts and documentation are available in the `notebooks/` and `docs/` directories.
+
+### External 3D geometry
+
+The project roadmap includes importing or inspecting aircraft geometry created in OpenVSP and triangular surface meshes in STL format. OpenVSP is intended to provide a parametric aircraft source, while STL is treated as a surface mesh and does not contain complete aerodynamic metadata. Before external geometry can be analyzed, VLMPy must validate units, coordinate axes, scale, surface normals, connected components, and the mapping from mesh regions to aerodynamic components.
+
+This workflow is planned unless a corresponding importer and validation case are present in the current source tree. See `docs/README-plan.md` and `docs/README-agent.md` for the intended requirements.
 
 ---
 

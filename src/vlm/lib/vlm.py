@@ -9,6 +9,7 @@ import pickle
 import plotly.graph_objects as go
 import plotly.colors
 import json
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,6 +54,39 @@ class VLM:
         self.vs_span            = 0
         self.wing_span          = 0
         self.results            = None
+        self.timings            = {}
+        self._geometry_cache_key = None
+        self._discretization_cache_key = None
+        self._panel_cache_token = 0
+        self._influence_cache = {}
+        self._solution_state_key = None
+
+    def _plane_cache_key(self):
+        """Return a deterministic key for the current geometry inputs."""
+        plane_data = json.dumps(self.plane, sort_keys=True, default=str)
+        return plane_data, float(self.alpha)
+
+    def _clear_solution_state(self):
+        self.results = None
+        self._solution_state_key = None
+        for name in (
+            'w_i', 'P_ij', 'gammas', 'lift_wing2', 'lift', 'lift_sum',
+            'CL', 'CL_locals', 'drag_wing2', 'drag', 'drag_sum', 'CD',
+            'CD_locals', 'lift_wing', 'lift_hs', 'lift_vs', 'drag_wing',
+            'drag_hs', 'drag_vs', 'CL_locals_wing', 'CL_locals_hs',
+            'CL_locals_vs', 'CD_locals_wing', 'CD_locals_hs',
+            'CD_locals_vs'
+        ):
+            self.__dict__.pop(name, None)
+
+    def _solution_cache_key(self):
+        return (
+            self._panel_cache_token,
+            float(self.u),
+            float(self.rho),
+            float(self.alpha),
+            float(self.beta),
+        )
 
     def save_and_load_plane_variables(self, filename='data/plane_variables.txt', option='save_and_load'):
         # Save and load plane variables to/from a text file
@@ -110,15 +144,35 @@ class VLM:
             self.plane = json.load(f)
 
     def calculate_geometry(self):
+        stage_start = time.perf_counter()
+        cache_key = self._plane_cache_key()
+        if cache_key == self._geometry_cache_key:
+            self.timings['geometry_cache_hit'] = True
+            return
+
         # Get total wing span
+        self.total_wing_span = 0
         for section in self.plane['wing_sections']:
             self.wing_span = section['span_fraction']
             self.total_wing_span += self.wing_span
 
         # Wing geometry
         self.wing_geometry, self.hs_geometry, self.vs_geometry = calculate_geometry(self)
+        self._geometry_cache_key = cache_key
+        self._discretization_cache_key = None
+        self._influence_cache.clear()
+        self._clear_solution_state()
+        self.timings['geometry'] = time.perf_counter() - stage_start
+        self.timings['geometry_cache_hit'] = False
 
     def calculate_discretization(self):
+        stage_start = time.perf_counter()
+        self.calculate_geometry()
+        cache_key = (self._geometry_cache_key, int(self.n), int(self.m))
+        if cache_key == self._discretization_cache_key:
+            self.timings['discretization_cache_hit'] = True
+            return
+
         # Determine panel density
         wing_panel_density = self.n / self.total_wing_span
         wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
@@ -161,7 +215,21 @@ class VLM:
         if len(self.dz_c) != len(self.panel_data):
             raise ValueError(f"Inconsistencia: len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}")
 
+        self._discretization_cache_key = cache_key
+        self._panel_cache_token += 1
+        self._influence_cache.clear()
+        self._clear_solution_state()
+        self.timings['discretization'] = time.perf_counter() - stage_start
+        self.timings['discretization_cache_hit'] = False
+
     def calculate_wing_lift(self):
+        stage_start = time.perf_counter()
+        self.calculate_discretization()
+        solution_key = self._solution_cache_key()
+        if solution_key == self._solution_state_key:
+            self.timings['solution_cache_hit'] = True
+            return
+
         # Calculate wing lift
         self.w_i, self.P_ij, self.gammas, self.lift_wing2, self.lift, self.lift_sum, self.CL, self.CL_locals, self.drag_wing2, self.drag, self.drag_sum, self.CD, self.CD_locals = plane(self)
 
@@ -188,6 +256,9 @@ class VLM:
             self.CD_locals_hs = self.CD_locals['CD_hs']
         if 'vertical_stabilizer' in self.plane:
             self.CD_locals_vs = self.CD_locals['CD_vs']
+        self._solution_state_key = solution_key
+        self.timings['solution'] = time.perf_counter() - stage_start
+        self.timings['solution_cache_hit'] = False
 
     def compute_coefficients_vs_alpha(self, angles_deg):
         """
@@ -214,13 +285,19 @@ class VLM:
             cl_values.append(self.CL)
             cd_values.append(self.CD)
 
-        self.alpha = original_alpha
-
-        self.results = {
+        sweep_results = {
             'angles_deg': angles_deg,
             'CL': cl_values,
             'CD': cd_values
         }
+
+        self.alpha = original_alpha
+        self._geometry_cache_key = None
+        self._discretization_cache_key = None
+        self.calculate_geometry()
+        self.calculate_discretization()
+        self.calculate_wing_lift()
+        self.results = sweep_results
 
     def run_vlm(self):
         self.calculate_geometry()
@@ -287,67 +364,95 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
     - P_ij: Coefficient matrix P_ij
     """
     n_controls = len(panel_data)
-    P_ij = np.zeros((n_controls, n_controls))
-    P_ij_resis = np.zeros((n_controls, n_controls))
-    w_i, normal_vector_, panel_length, u_ = calculate_w_i(panel_data, u, dz_c, alpha, beta)
+    if n_controls == 0:
+        raise ValueError("panel_data must contain at least one panel")
 
-    for i, panel_i in enumerate(panel_data):
-        xi, yi, zi = panel_i[3]  # Control point for panel i
+    w_i, normal_vector_, panel_length, u_ = calculate_w_i(
+        panel_data, u, dz_c, alpha, beta
+    )
 
-        normal_vector = normal_vector_[i]
+    # Keep the existing coordinate convention: the solver swaps x and y
+    # when constructing the vortex and control-point vectors.
+    control_points = np.asarray([panel[3] for panel in panel_data], dtype=float)
+    vortex_nodes = np.asarray(
+        [[panel[2][0], panel[2][1]] for panel in panel_data], dtype=float
+    )
+    control_points = control_points[:, [1, 0, 2]]
+    vortex_nodes = vortex_nodes[:, :, [1, 0, 2]]
 
-        for j, panel_j in enumerate(panel_data):
-            xj, yj, zj = panel_j[2][0]  # Node 1 of panel j
-            xjf, yjf, zjf = panel_j[2][1]  # Node 2 of panel j
+    r1 = control_points[:, None, :] - vortex_nodes[None, :, 0, :]
+    r2 = control_points[:, None, :] - vortex_nodes[None, :, 1, :]
+    r1_inverse = -r1
+    r2_inverse = -r2
+    r0 = vortex_nodes[None, :, 1, :] - vortex_nodes[None, :, 0, :]
 
-            # Vortex Head
-            C = np.array([yi, xi, zi]) # Control point
-            A = np.array([yj, xj, zj]) # Node 1
-            B = np.array([yjf, xjf, zjf]) # Node 2
+    r1_norm = np.linalg.norm(r1, axis=2)
+    r2_norm = np.linalg.norm(r2, axis=2)
+    cross_r1_r2 = np.cross(r1, r2)
+    cross_norm_squared = np.sum(cross_r1_r2 * cross_r1_r2, axis=2)
 
-            # Vector AC, BC, AB
-            r1  = C - A # Vector AC
-            r1_ = A - C # Vector CA
+    r0r1 = np.sum(r0 * r1, axis=2)
+    r0r2 = np.sum(r0 * r2, axis=2)
+    omega = np.zeros_like(r1_norm)
+    valid_omega = (r1_norm > 1e-12) & (r2_norm > 1e-12)
+    omega[valid_omega] = (
+        r0r1[valid_omega] / r1_norm[valid_omega]
+        - r0r2[valid_omega] / r2_norm[valid_omega]
+    )
 
-            r2  = C - B # Vector BC
-            r2_ = B - C # Vector CB
+    psi = np.zeros_like(cross_r1_r2)
+    valid_psi = cross_norm_squared > 1e-24
+    psi[valid_psi] = (
+        cross_r1_r2[valid_psi]
+        / cross_norm_squared[valid_psi, None]
+    )
+    v_ab = psi * omega[:, :, None] / (4 * np.pi)
 
-            r0  = B - A # Vector AB
+    r1_x, r1_y, r1_z = r1[:, :, 0], r1[:, :, 1], r1[:, :, 2]
+    r2_x, r2_y, r2_z = r2[:, :, 0], r2[:, :, 1], r2[:, :, 2]
+    r1_inverse_y = r1_inverse[:, :, 1]
+    r2_inverse_y = r2_inverse[:, :, 1]
+    denominator_a = r1_z ** 2 + r1_inverse_y ** 2
+    denominator_b = r2_z ** 2 + r2_inverse_y ** 2
+    factor_a = np.zeros_like(r1_norm)
+    factor_b = np.zeros_like(r2_norm)
+    valid_a = r1_norm > 1e-6
+    valid_b = r2_norm > 1e-6
+    factor_a[valid_a] = (1 + r1_x[valid_a] / r1_norm[valid_a]) / (4 * np.pi)
+    factor_b[valid_b] = (1 + r2_x[valid_b] / r2_norm[valid_b]) / (4 * np.pi)
 
-            r1_norm = np.linalg.norm(r1) # Magnitude of AC
-            r2_norm = np.linalg.norm(r2) # Magnitude of BC
-            
-            # V_AB
-            cross_r1_r2 = np.cross(r1, r2) # Cross product between AC and BC (panel normal vector)
-            cross_r1_r2_norm = np.linalg.norm(cross_r1_r2) # Magnitude of the normal vector
+    v_a_inf = np.zeros_like(v_ab)
+    valid_a_j = valid_a & (r1_z ** 2 > 1e-6)
+    valid_a_k = valid_a & (r1_inverse_y ** 2 > 1e-6)
+    v_a_inf[:, :, 1][valid_a_j] = (
+        r1_z[valid_a_j] / denominator_a[valid_a_j] * factor_a[valid_a_j]
+    )
+    v_a_inf[:, :, 2][valid_a_k] = (
+        r1_inverse_y[valid_a_k] / denominator_a[valid_a_k] * factor_a[valid_a_k]
+    )
 
-            r0r1 = np.dot(r0, r1) # Dot product between AB and AC
-            r0r2 = np.dot(r0, r2) # Dot product between AB and BC
-            
-            psi = cross_r1_r2 / np.abs(cross_r1_r2_norm)**2 if cross_r1_r2_norm > 1e-12 else np.zeros(3) # Normal vector divided by squared magnitude
-            omega = r0r1 / r1_norm - r0r2 / r2_norm if r1_norm > 1e-12 and r2_norm > 1e-12 else 0
-            V_AB = np.dot(psi, omega) / (4 * np.pi)
-            V_AB_ = V_AB[1] * normal_vector[1] + V_AB[2] * normal_vector[2]
-            
-            # Calculation of V_AInf and V_BInf as vectors
-            V_AInf = np.zeros(3)
-            # j-component
-            V_AInf[1] = (r1[2] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1[2]**2 > 1e-6 else 0
-            # k-component
-            V_AInf[2] = (r1_[1] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1_[1]**2 > 1e-6 else 0
-            V_AInf_ = V_AInf[1] * normal_vector[1] + V_AInf[2] * normal_vector[2]
+    v_b_inf = np.zeros_like(v_ab)
+    valid_b_j = valid_b & (r2_z ** 2 > 1e-6)
+    valid_b_k = valid_b & (r2_inverse_y ** 2 > 1e-6)
+    v_b_inf[:, :, 1][valid_b_j] = (
+        -r2_z[valid_b_j] / denominator_b[valid_b_j] * factor_b[valid_b_j]
+    )
+    v_b_inf[:, :, 2][valid_b_k] = (
+        -r2_inverse_y[valid_b_k] / denominator_b[valid_b_k] * factor_b[valid_b_k]
+    )
 
-            V_BInf = np.zeros(3)
-            # j-component
-            V_BInf[1] = - (r2[2] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2[2]**2 > 1e-6 else 0
-            # k-component
-            V_BInf[2] = - (r2_[1] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2_[1]**2 > 1e-6 else 0
-            V_BInf_ =  V_BInf[1] * normal_vector[1] + V_BInf[2] * normal_vector[2]
+    normal_y = normal_vector_[:, 1][None, :]
+    normal_z = normal_vector_[:, 2][None, :]
+    v_ab_normal = v_ab[:, :, 1] * normal_y + v_ab[:, :, 2] * normal_z
+    v_inf_normal = (
+        v_a_inf[:, :, 1] * normal_y
+        + v_a_inf[:, :, 2] * normal_z
+        + v_b_inf[:, :, 1] * normal_y
+        + v_b_inf[:, :, 2] * normal_z
+    )
 
-            # Construction of the coefficient matrix
-            P_ij[i, j] = V_AB_ + V_AInf_ + V_BInf_
-            P_ij_resis[i, j] = V_AInf_ + V_BInf_
-            
+    P_ij_resis = v_inf_normal
+    P_ij = v_ab_normal + P_ij_resis
     return P_ij, P_ij_resis, w_i, panel_length, u_
 
 def calculate_w_i(panel_data, u, dz_c, alpha, beta):
@@ -409,12 +514,29 @@ def plane(self):
     wing_area      = self.wing_area
     panel_areas    = self.panel_areas
 
-    # 2. System resulotion P·γ = w
-    P_ij, P_ij_resis, w_i, panel_lengths, self.u_ = calculate_P_ij(panel_data, u, dz_c, alpha, beta)
-    gammas    = np.linalg.solve(P_ij, w_i)
+    # 2. System resolution P·gamma = w
+    influence_key = (self._panel_cache_token, float(alpha), float(beta))
+    influence_start = time.perf_counter()
+    cached_influence = self._influence_cache.get(influence_key)
+    if cached_influence is None:
+        P_ij, P_ij_resis, w_i, panel_lengths, self.u_ = calculate_P_ij(
+            panel_data, u, dz_c, alpha, beta
+        )
+        self._influence_cache[influence_key] = (P_ij, P_ij_resis, panel_lengths)
+        self.timings['influence_cache_hit'] = False
+    else:
+        P_ij, P_ij_resis, panel_lengths = cached_influence
+        w_i, _, _, self.u_ = calculate_w_i(panel_data, u, dz_c, alpha, beta)
+        self.timings['influence_cache_hit'] = True
+    self.timings['influence_matrix'] = time.perf_counter() - influence_start
+
+    solve_start = time.perf_counter()
+    gammas = np.linalg.solve(P_ij, w_i)
+    self.timings['linear_solve'] = time.perf_counter() - solve_start
     W_i       = P_ij_resis.dot(gammas)
 
     # 3. Dynamic pressure (total and local)
+    postprocess_start = time.perf_counter()
     q_total = 0.5 * rho * u**2 * wing_area      # total dynamic pressure (wing area)
     q_local = 0.5 * rho * u**2                  # local dynamic pressure (per panel)
 
@@ -527,6 +649,8 @@ def plane(self):
     }
 
     # 16. Return all results
+    self.timings['postprocess'] = time.perf_counter() - postprocess_start
+
     return (
         w_i,
         P_ij,
@@ -615,7 +739,7 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
         colorscale=colorscale,
         cmin=vmin,
         cmax=vmax,
-        colorbar=dict(title=legend, titleside='right', thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
         opacity=opacity,
         flatshading=False,
         name='Wing Heatmap',
@@ -714,7 +838,7 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         z=dummy_z,
         colorscale=colorscale,
         showscale=True,
-        colorbar=dict(title=legend, titleside='right', thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
         visible=True
     )
     fig.add_trace(dummy_heatmap)

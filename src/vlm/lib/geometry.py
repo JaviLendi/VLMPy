@@ -7,6 +7,7 @@ import time
 import numpy as np
 import plotly.graph_objects as go
 from lib.naca import naca_airfoil_dzdx
+from stl import mesh, Mode
 
 def calculate_geometry(self):
     """
@@ -638,6 +639,376 @@ def interpolate_airfoil_z(x, y, z_root, z_tip, chord_root, chord_tip, x_tip_min,
 
 ######################################################################################################################
 ######################################################################################################################
+# Geometry to STL functions ##########################################################################################
+######################################################################################################################
+######################################################################################################################
+
+def wing_to_stl_with_naca_profile(vlm_object, output_filename='wing_with_profile.stl', 
+                                  naca_resolution=50, format='binary'):
+    """
+    Generates COMPLETE STL file with NACA profile from VLM object.
+
+    This method overcomes the limitation that VLM only generates the planform.
+    Here we regenerate the 3D geometry with the complete NACA profile.
+
+    Parameters:
+    -----------
+    vlm_object : VLM
+        VLM object with wing configuration
+    output_filename : str
+        Output STL file name
+    naca_resolution : int
+        Number of points to discretize the NACA profile
+    format : str
+        'binary' or 'ascii'
+
+    Returns:
+    --------
+    mesh_object : stl.mesh.Mesh
+        numpy-stl mesh object
+    """
+
+    from naca import naca_airfoil
+
+    plane = vlm_object.plane
+    wing_sections = plane['wing_sections']
+
+    all_faces = []
+    all_vertices = []
+    vertex_offset = 0
+
+    # ========================================================================
+    # STEP 1: Generate 3D geometry with complete NACA profiles
+    # ========================================================================
+
+    y_current = 0
+    z_current = 0
+    x_lead_current = 0
+
+    print("\n=== Generating 3D geometry with NACA profiles ===")
+
+    for sec_idx, section in enumerate(wing_sections):
+        print(f"\nSection {sec_idx + 1}:")
+
+        # Section parameters
+        span = section['span_fraction']
+        chord_root = section['chord_root']
+        chord_tip = section['chord_tip']
+        sweep = section['sweep']
+        dihedral = section['dihedral']
+        NACA_root = section['NACA_root']
+        NACA_tip = section['NACA_tip']
+        twist_root = section.get('twist_root', 0)
+        twist_tip = section.get('twist_tip', 0)
+
+        print(f"  Span: {span:.2f}m")
+        print(f"  NACA root: {NACA_root}, NACA tip: {NACA_tip}")
+        print(f"  Twist root: {np.degrees(twist_root):.2f}°, Twist tip: {np.degrees(twist_tip):.2f}°")
+
+        # ====================================================================
+        # Generate NACA profiles at root and tip
+        # ====================================================================
+
+        x_root, z_upper_root, z_lower_root, _, _, _ = naca_airfoil(
+            NACA_root, chord_root, twist_root, naca_resolution)
+
+        x_tip, z_upper_tip, z_lower_tip, _, _, _ = naca_airfoil(
+            NACA_tip, chord_tip, twist_tip, naca_resolution)
+
+        # Combine upper and lower surfaces in leading edge order
+        # Lower surface backwards + upper surface forward
+        x_root_full = np.concatenate([x_root[::-1], x_root[1:]])
+        z_root_full = np.concatenate([z_lower_root[::-1], z_upper_root[1:]])
+
+        x_tip_full = np.concatenate([x_tip[::-1], x_tip[1:]])
+        z_tip_full = np.concatenate([z_lower_tip[::-1], z_upper_tip[1:]])
+
+        # ====================================================================
+        # Calculate 3D positions for this section
+        # ====================================================================
+
+        # Next position considering sweep and dihedral
+        y_next = y_current + span * np.cos(dihedral)
+        z_next = z_current + span * np.sin(dihedral)
+        x_lead_next = x_lead_current + span * np.tan(sweep)
+
+        # ====================================================================
+        # Create vertices by interpolating between root and tip
+        # ====================================================================
+
+        n_profile = len(x_root_full)
+        print(f"  Points per profile: {n_profile}")
+
+        # Store vertices for both sections (root and tip)
+        vertices_root_section = []
+        vertices_tip_section = []
+
+        for i in range(n_profile):
+            # Vertex at ROOT
+            vertex_root = [
+                x_root_full[i] + x_lead_current,  # x: local profile coordinate + sweep offset
+                y_current,                        # y: span
+                z_root_full[i] + z_current        # z: profile height + dihedral offset
+            ]
+            vertices_root_section.append(vertex_root)
+
+            # Vertex at TIP
+            vertex_tip = [
+                x_tip_full[i] + x_lead_next,      # x: interpolated
+                y_next,                           # y: next span
+                z_tip_full[i] + z_next            # z: interpolated
+            ]
+            vertices_tip_section.append(vertex_tip)
+
+        all_vertices.extend(vertices_root_section)
+        all_vertices.extend(vertices_tip_section)
+
+        # ====================================================================
+        # Create triangular faces connecting both sections
+        # ====================================================================
+
+        for i in range(n_profile - 1):
+            # Indices of the four vertices of the panel
+            # Root row
+            v_root_0 = vertex_offset + i
+            v_root_1 = vertex_offset + i + 1
+
+            # Tip row
+            v_tip_0 = vertex_offset + n_profile + i
+            v_tip_1 = vertex_offset + n_profile + i + 1
+
+            # Create two triangles for this quadrilateral
+            # Triangle 1: v_root_0 → v_root_1 → v_tip_0
+            all_faces.append([v_root_0, v_root_1, v_tip_0])
+
+            # Triangle 2: v_root_1 → v_tip_1 → v_tip_0
+            all_faces.append([v_root_1, v_tip_1, v_tip_0])
+
+        # Update offset for next section
+        vertex_offset = len(all_vertices)
+
+        # Update positions for next section
+        y_current = y_next
+        z_current = z_next
+        x_lead_current = x_lead_next
+
+        print(f"  Vertices in this section: {n_profile * 2}")
+        print(f"  Faces generated: {(n_profile - 1) * 2}")
+
+    # ========================================================================
+    # STEP 2: Process symmetric wings
+    # ========================================================================
+
+    vertices = np.array(all_vertices)
+    faces = np.array(all_faces)
+
+    if plane.get('symmetric', True):
+        print("\n=== Generating symmetric wing ===")
+
+        # Create left side by reflecting over y = 0
+        vertices_left = vertices.copy()
+        vertices_left[:, 1] *= -1  # Reflect in y (change sign of span)
+
+        # Combine vertices from both sides
+        n_right = len(vertices)
+        vertices = np.vstack([vertices, vertices_left])
+
+        # Create faces for left side (reverse order for correct normal)
+        faces_left = []
+        for face in faces:
+            faces_left.append([
+                face[0] + n_right,
+                face[2] + n_right,  # Reverse order to point outward
+                face[1] + n_right
+            ])
+
+        all_faces = np.vstack([faces, np.array(faces_left)])
+
+        print(f"  Total vertices: {len(vertices)}")
+        print(f"  Total faces: {len(all_faces)}")
+
+    # ========================================================================
+    # STEP 3: Create mesh and export to STL
+    # ========================================================================
+
+    print(f"\n=== Creating STL mesh ===")
+
+    # Create mesh using numpy-stl
+    wing_mesh = mesh.Mesh(np.zeros(len(all_faces), dtype=mesh.Mesh.dtype))
+
+    for i, face in enumerate(all_faces):
+        for j in range(3):
+            wing_mesh.vectors[i][j] = vertices[face[j]]
+
+    # Save file
+    if format.lower() == 'binary':
+        wing_mesh.save(output_filename, mode=Mode.BINARY)
+        print(f"✓ Format: BINARY (compact)")
+    else:
+        wing_mesh.save(output_filename, mode=Mode.ASCII)
+        print(f"✓ Format: ASCII (readable)")
+
+    print(f"✓ STL file generated: {output_filename}")
+    print(f"  Total triangles: {len(all_faces)}")
+    print(f"  Total vertices: {len(vertices)}")
+
+    # Calculate approximate volume
+    volume = 0
+    for i in range(len(all_faces)):
+        v0 = wing_mesh.vectors[i][0]
+        v1 = wing_mesh.vectors[i][1]
+        v2 = wing_mesh.vectors[i][2]
+        volume += np.dot(v0, np.cross(v1, v2))
+    volume = np.abs(volume) / 6.0
+    print(f"  Approximate volume: {volume:.4f} m³")
+
+    return wing_mesh
+
+
+def wing_to_stl_with_naca_config(plane_config, output_filename='wing_with_profile.stl',
+                                 naca_resolution=100, format='binary'):
+    """
+    Generates STL with NACA profile from configuration (without using existing VLM).
+
+    Parameters:
+    -----------
+    plane_config : dict
+        Dictionary with 'wing_sections'
+    output_filename : str
+        Output STL file name
+    naca_resolution : int
+        Number of points to discretize the NACA profile
+    format : str
+        'binary' or 'ascii'
+
+    Returns:
+    --------
+    mesh_object : stl.mesh.Mesh
+        numpy-stl mesh object
+    """
+
+    from naca import naca_airfoil
+
+    wing_sections = plane_config['wing_sections']
+
+    all_faces = []
+    all_vertices = []
+    vertex_offset = 0
+
+    print("\n=== Generating STL with NACA profiles (without VLM) ===")
+
+    y_current = 0
+    z_current = 0
+    x_lead_current = 0
+
+    for sec_idx, section in enumerate(wing_sections):
+        print(f"Section {sec_idx + 1}: {section['NACA_root']} → {section['NACA_tip']}")
+
+        # Parameters
+        span = section['span_fraction']
+        chord_root = section['chord_root']
+        chord_tip = section['chord_tip']
+        sweep = section['sweep']
+        dihedral = section['dihedral']
+        NACA_root = section['NACA_root']
+        NACA_tip = section['NACA_tip']
+        twist_root = section.get('twist_root', 0)
+        twist_tip = section.get('twist_tip', 0)
+
+        # Generate NACA profiles
+        x_root, z_upper_root, z_lower_root, _, _, _ = naca_airfoil(
+            NACA_root, chord_root, twist_root, naca_resolution)
+        x_tip, z_upper_tip, z_lower_tip, _, _, _ = naca_airfoil(
+            NACA_tip, chord_tip, twist_tip, naca_resolution)
+
+        # Combine surfaces
+        x_root_full = np.concatenate([x_root[::-1], x_root[1:]])
+        z_root_full = np.concatenate([z_lower_root[::-1], z_upper_root[1:]])
+
+        x_tip_full = np.concatenate([x_tip[::-1], x_tip[1:]])
+        z_tip_full = np.concatenate([z_lower_tip[::-1], z_upper_tip[1:]])
+
+        # Calculate 3D positions
+        y_next = y_current + span * np.cos(dihedral)
+        z_next = z_current + span * np.sin(dihedral)
+        x_lead_next = x_lead_current + span * np.tan(sweep)
+
+        n_profile = len(x_root_full)
+
+        # Create vertices
+        for i in range(n_profile):
+            vertex_root = [
+                x_root_full[i] + x_lead_current,
+                y_current,
+                z_root_full[i] + z_current
+            ]
+            vertex_tip = [
+                x_tip_full[i] + x_lead_next,
+                y_next,
+                z_tip_full[i] + z_next
+            ]
+            all_vertices.extend([vertex_root, vertex_tip])
+
+        # Create faces
+        for i in range(n_profile - 1):
+            v_root_0 = vertex_offset + 2 * i
+            v_root_1 = vertex_offset + 2 * i + 2
+            v_tip_0 = vertex_offset + 2 * i + 1
+            v_tip_1 = vertex_offset + 2 * i + 3
+
+            all_faces.append([v_root_0, v_root_1, v_tip_0])
+            all_faces.append([v_root_1, v_tip_1, v_tip_0])
+
+        vertex_offset = len(all_vertices)
+
+        y_current = y_next
+        z_current = z_next
+        x_lead_current = x_lead_next
+
+    # Process symmetry
+    vertices = np.array(all_vertices)
+    faces = np.array(all_faces)
+
+    if plane_config.get('symmetric', True):
+        vertices_left = vertices.copy()
+        vertices_left[:, 1] *= -1
+
+        n_right = len(vertices)
+        vertices = np.vstack([vertices, vertices_left])
+
+        faces_left = []
+        for face in faces:
+            faces_left.append([
+                face[0] + n_right,
+                face[2] + n_right,
+                face[1] + n_right
+            ])
+
+        all_faces = np.vstack([faces, np.array(faces_left)])
+
+    # Create mesh and export
+    wing_mesh = mesh.Mesh(np.zeros(len(all_faces), dtype=mesh.Mesh.dtype))
+
+    for i, face in enumerate(all_faces):
+        for j in range(3):
+            wing_mesh.vectors[i][j] = vertices[face[j]]
+
+    # Save
+    if format.lower() == 'binary':
+        wing_mesh.save(output_filename, mode=Mode.BINARY)
+    else:
+        wing_mesh.save(output_filename, mode=Mode.ASCII)
+
+    print(f"\n✓ STL file generated: {output_filename}")
+    print(f"  Triangles: {len(all_faces)}")
+    print(f"  Vertices: {len(vertices)}")
+
+    return wing_mesh
+
+
+
+######################################################################################################################
+######################################################################################################################
 # Plotting functions #################################################################################################
 ######################################################################################################################
 ######################################################################################################################
@@ -653,13 +1024,24 @@ def plot_wing_discretization_3d(fig, panel_data):
 
     fig = go.Figure()
 
+    mesh_x, mesh_y, mesh_z = [], [], []
+    mesh_i, mesh_j, mesh_k = [], [], []
     for panel in panels:
-        x, y, z = zip(*panel)
-        fig.add_trace(go.Mesh3d(
-            x=x, y=y, z=z,
-            color='blue', opacity=0.1, showscale=False,
-            name='Panels', showlegend=False
-        ))
+        vertex_offset = len(mesh_x)
+        for x, y, z in panel:
+            mesh_x.append(x)
+            mesh_y.append(y)
+            mesh_z.append(z)
+        mesh_i.extend([vertex_offset, vertex_offset])
+        mesh_j.extend([vertex_offset + 1, vertex_offset + 2])
+        mesh_k.extend([vertex_offset + 2, vertex_offset + 3])
+
+    fig.add_trace(go.Mesh3d(
+        x=mesh_x, y=mesh_y, z=mesh_z,
+        i=mesh_i, j=mesh_j, k=mesh_k,
+        color='blue', opacity=0.1, showscale=False,
+        name='Panels', showlegend=False
+    ))
 
     edge_x, edge_y, edge_z = [], [], []
     for panel in panels:
@@ -732,7 +1114,7 @@ def plot_wing_discretization_3d(fig, panel_data):
     ))
 
     # Define trace counts for visibility toggling
-    num_panel_traces = len(panels)  # Mesh3d traces
+    num_panel_traces = 1             # Consolidated Mesh3d trace
     num_edge_traces = 1             # Consolidated edges
     num_control_traces = 1          # Consolidated control points
     num_node_traces = 1             # Consolidated 1/4 chord lines
@@ -820,22 +1202,24 @@ def plot_wing_discretization_2d(fig, panel_data):
             x_idx, y_idx = 1, 2
             x_title, y_title = 'x [m]', 'z [m]'
 
-        for panel in panels:
-            px, py = [coord[x_idx] for coord in panel], [coord[y_idx] for coord in panel]
-            traces[proj].append(go.Scatter(
-            x=list(px) + [px[0]], y=list(py) + [py[0]],
-            fill='toself', fillcolor='rgba(0,0,255,0.1)', line=dict(color='blue'),
-            mode='lines',  # Only lines, no markers
-            name='Panel fill', showlegend=False, visible=(proj == 'xy')
-            ))
-
-        # Panel Edges
+        fill_px, fill_py = [], []
         edge_px, edge_py = [], []
         for panel in panels:
             px, py = [coord[x_idx] for coord in panel], [coord[y_idx] for coord in panel]
+            fill_px.extend(list(px) + [px[0], None])
+            fill_py.extend(list(py) + [py[0], None])
             edge_px.extend(list(px) + [px[0], None])
             edge_py.extend(list(py) + [py[0], None])
-        traces[proj].append(go.Scatter(
+
+        traces[proj].append(go.Scattergl(
+            x=fill_px, y=fill_py,
+            fill='toself', fillcolor='rgba(0,0,255,0.1)',
+            line=dict(color='blue'), mode='lines',
+            name='Panel fill', showlegend=False, visible=(proj == 'xy')
+        ))
+
+        # Panel Edges
+        traces[proj].append(go.Scattergl(
             x=edge_px, y=edge_py,
             mode='lines', line=dict(color='black', width=1),
             name='Panel edges', visible=(proj == 'xy')
@@ -844,7 +1228,7 @@ def plot_wing_discretization_2d(fig, panel_data):
         # Control Points
         control_px = [c[x_idx] for c in controls]
         control_py = [c[y_idx] for c in controls]
-        traces[proj].append(go.Scatter(
+        traces[proj].append(go.Scattergl(
             x=control_px, y=control_py,
             mode='markers', marker=dict(size=3, color='red'),
             name='Control points', visible=(proj == 'xy')
@@ -857,7 +1241,7 @@ def plot_wing_discretization_2d(fig, panel_data):
             px, py = [coord[x_idx] for coord in line], [coord[y_idx] for coord in line]
             line_px.extend(list(px) + [None])
             line_py.extend(list(py) + [None])
-        traces[proj].append(go.Scatter(
+        traces[proj].append(go.Scattergl(
             x=line_px, y=line_py,
             mode='lines', line=dict(color='blue', width=1),
             name='1/4 Chord lines', visible=(proj == 'xy')
