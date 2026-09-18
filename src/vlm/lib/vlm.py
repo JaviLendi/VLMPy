@@ -10,6 +10,8 @@ import plotly.graph_objects as go
 import plotly.colors
 import json
 import time
+import hashlib
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ class VLM:
         self.results = None
         self._solution_state_key = None
         for name in (
-            'w_i', 'P_ij', 'gammas', 'lift_wing2', 'lift', 'lift_sum',
+            'w_i', 'P_ij', 'P_ij_resis', 'gammas', 'lift_wing2', 'lift', 'lift_sum',
             'CL', 'CL_locals', 'drag_wing2', 'drag', 'drag_sum', 'CD',
             'CD_locals', 'lift_wing', 'lift_hs', 'lift_vs', 'drag_wing',
             'drag_hs', 'drag_vs', 'CL_locals_wing', 'CL_locals_hs',
@@ -87,6 +89,161 @@ class VLM:
             float(self.alpha),
             float(self.beta),
         )
+
+    def invalidate_state(self):
+        """Invalidate all derived geometry, solver, and result data."""
+        self.wing_geometry = None
+        self.hs_geometry = None
+        self.vs_geometry = None
+        self.panel_data = None
+        self.discretization = None
+        self.wing_area = 0
+        self.panel_areas = None
+        self.dz_c = None
+        self.n_hs = self.m_hs = 0
+        self.n_vs = self.m_vs = 0
+        self._geometry_cache_key = None
+        self._discretization_cache_key = None
+        self._panel_cache_token += 1
+        self._influence_cache.clear()
+        self._clear_solution_state()
+
+    def export_configuration(self, include_flight=True):
+        """Return the reproducible input configuration for this VLM case."""
+        configuration = json.loads(json.dumps(self.plane, default=float))
+        if include_flight:
+            configuration['flight_parameters'] = {
+                'u': float(self.u),
+                'rho': float(self.rho),
+                'alpha': float(self.alpha),
+                'beta': float(self.beta),
+                'n': int(self.n),
+                'm': int(self.m),
+            }
+        return configuration
+
+    @staticmethod
+    def configuration_checksum(configuration):
+        canonical = json.dumps(configuration, sort_keys=True, separators=(',', ':'), default=float)
+        return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+    def apply_configuration(self, configuration, include_flight=True):
+        """Apply a normalized configuration and invalidate all derived state."""
+        configuration = json.loads(json.dumps(configuration, default=float))
+        aliases = {
+            'wingsections': 'wing_sections',
+            'horizontalstabilizer': 'horizontal_stabilizer',
+            'verticalstabilizer': 'vertical_stabilizer',
+            'flightparameters': 'flight_parameters',
+        }
+        for old_key, new_key in aliases.items():
+            if old_key in configuration and new_key not in configuration:
+                configuration[new_key] = configuration.pop(old_key)
+        flight = configuration.pop('flight_parameters', None) if include_flight else None
+        self.plane = configuration
+        if flight:
+            self.u = float(flight.get('u', self.u))
+            self.rho = float(flight.get('rho', self.rho))
+            self.alpha = float(flight.get('alpha', self.alpha))
+            self.beta = float(flight.get('beta', self.beta))
+            self.n = int(flight.get('n', self.n))
+            self.m = int(flight.get('m', self.m))
+        self.invalidate_state()
+
+    def save_results(self, filename):
+        """Save calculated results as a JSON manifest and a NumPy NPZ payload."""
+        if not hasattr(self, 'gammas') or self.panel_data is None:
+            raise ValueError('Run the VLM solver before saving results')
+        base_path = Path(filename)
+        if base_path.suffix.lower() != '.json':
+            base_path = base_path.with_suffix('.json')
+        arrays_path = base_path.with_suffix('.npz')
+        arrays = {
+            'P_ij': np.asarray(self.P_ij),
+            'P_ij_resis': np.asarray(self.P_ij_resis),
+            'w_i': np.asarray(self.w_i),
+            'gammas': np.asarray(self.gammas),
+            'lift_wing2': np.asarray(self.lift_wing2),
+            'drag_wing2': np.asarray(self.drag_wing2),
+            'panel_areas': np.asarray(self.panel_areas),
+            'lift_wing': np.asarray(self.lift_sum['lift_wing']),
+            'lift_hs': np.asarray(self.lift_sum['lift_hs']),
+            'lift_vs': np.asarray(self.lift_sum['lift_vs']),
+            'drag_wing': np.asarray(self.drag_sum['drag_wing']),
+            'drag_hs': np.asarray(self.drag_sum['drag_hs']),
+            'drag_vs': np.asarray(self.drag_sum['drag_vs']),
+            'CL_locals_wing': np.asarray(self.CL_locals['CL_wing']),
+            'CL_locals_hs': np.asarray(self.CL_locals['CL_hs']),
+            'CL_locals_vs': np.asarray(self.CL_locals['CL_vs']),
+            'CD_locals_wing': np.asarray(self.CD_locals['CD_wing']),
+            'CD_locals_hs': np.asarray(self.CD_locals['CD_hs']),
+            'CD_locals_vs': np.asarray(self.CD_locals['CD_vs']),
+        }
+        np.savez_compressed(arrays_path, **arrays)
+        configuration = self.export_configuration(include_flight=True)
+        manifest = {
+            'schema': 'vlmpy.results',
+            'schema_version': 1,
+            'configuration': configuration,
+            'configuration_checksum': self.configuration_checksum(configuration),
+            'summary': {
+                'CL': float(self.CL), 'CD': float(self.CD),
+                'lift': float(self.lift), 'drag': float(self.drag),
+            },
+            'arrays': {
+                'file': arrays_path.name,
+                'keys': {key: {'shape': list(value.shape), 'dtype': str(value.dtype)} for key, value in arrays.items()},
+            },
+        }
+        base_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+        return manifest
+
+    def load_results(self, filename):
+        """Load validated solver arrays from a JSON manifest and NPZ payload."""
+        manifest_path = Path(filename)
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if manifest.get('schema') != 'vlmpy.results' or manifest.get('schema_version') != 1:
+            raise ValueError('Unsupported results file schema')
+        configuration = manifest.get('configuration')
+        if not isinstance(configuration, dict):
+            raise ValueError('Results manifest has no configuration')
+        if self.configuration_checksum(configuration) != manifest.get('configuration_checksum'):
+            raise ValueError('Results configuration checksum is invalid')
+        arrays_path = manifest_path.parent / manifest['arrays']['file']
+        with np.load(arrays_path, allow_pickle=False) as loaded:
+            arrays = {key: np.asarray(loaded[key]) for key in manifest['arrays']['keys']}
+        expected_count = len(self.panel_data) if self.panel_data is not None else arrays['gammas'].size
+        if arrays['gammas'].size != expected_count:
+            raise ValueError('Results panel count is incompatible with the current case')
+        for key, value in arrays.items():
+            if not np.isfinite(value).all():
+                raise ValueError(f'Results array contains non-finite values: {key}')
+        for key, value in arrays.items():
+            setattr(self, key, value)
+        summary = manifest['summary']
+        self.CL = float(summary['CL'])
+        self.CD = float(summary['CD'])
+        self.lift = float(summary['lift'])
+        self.drag = float(summary['drag'])
+        self.lift_sum = {f'lift_{key}': arrays[f'lift_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.drag_sum = {f'drag_{key}': arrays[f'drag_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.CL_locals = {f'CL_{key}': arrays[f'CL_locals_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.CD_locals = {f'CD_{key}': arrays[f'CD_locals_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.lift_wing = self.lift_sum['lift_wing']
+        self.lift_hs = self.lift_sum['lift_hs']
+        self.lift_vs = self.lift_sum['lift_vs']
+        self.drag_wing = self.drag_sum['drag_wing']
+        self.drag_hs = self.drag_sum['drag_hs']
+        self.drag_vs = self.drag_sum['drag_vs']
+        self.CL_locals_wing = self.CL_locals['CL_wing']
+        self.CL_locals_hs = self.CL_locals['CL_hs']
+        self.CL_locals_vs = self.CL_locals['CL_vs']
+        self.CD_locals_wing = self.CD_locals['CD_wing']
+        self.CD_locals_hs = self.CD_locals['CD_hs']
+        self.CD_locals_vs = self.CD_locals['CD_vs']
+        self._solution_state_key = self._solution_cache_key()
+        self.results = manifest
+        return manifest
 
     def save_and_load_plane_variables(self, filename='data/plane_variables.txt', option='save_and_load'):
         # Save and load plane variables to/from a text file
@@ -526,11 +683,13 @@ def plane(self):
         self.timings['influence_cache_hit'] = False
     else:
         P_ij, P_ij_resis, panel_lengths = cached_influence
+        self.P_ij_resis = P_ij_resis
         w_i, _, _, self.u_ = calculate_w_i(panel_data, u, dz_c, alpha, beta)
         self.timings['influence_cache_hit'] = True
     self.timings['influence_matrix'] = time.perf_counter() - influence_start
 
     solve_start = time.perf_counter()
+    self.P_ij_resis = P_ij_resis
     gammas = np.linalg.solve(P_ij, w_i)
     self.timings['linear_solve'] = time.perf_counter() - solve_start
     W_i       = P_ij_resis.dot(gammas)

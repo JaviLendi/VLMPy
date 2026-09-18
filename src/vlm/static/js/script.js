@@ -152,12 +152,20 @@ document.addEventListener('DOMContentLoaded', () => {
             n_section: nSectionInput ? nSectionInput.value : 1 
         };
 
-        fetch(endpoint, {
+        const waitForCalculation = window.vlmCalculationPromise || Promise.resolve();
+        waitForCalculation.then(() => fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
+        }))
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(error => {
+                    throw new Error(error.message || `HTTP ${response.status}`);
+                });
+            }
+            return response.json();
         })
-        .then(response => response.json())
         .then(data => {
             if (data.status === 'error') {
                 if (window.messageCenter) {
@@ -185,7 +193,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Keep the current camera and reuse the existing Plotly scene.
             plotData.layout.uirevision = filename || endpoint;
             plotData.layout.autosize = true;
-            const plotPromise = DOM.plotArea.data
+            const plotIsMounted = DOM.plotArea.classList.contains('js-plotly-plot')
+                && DOM.plotArea._fullLayout;
+            const plotPromise = plotIsMounted
                 ? Plotly.react(DOM.plotArea, plotData.data, plotData.layout, config)
                 : Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
             plotPromise.catch(error => {
@@ -290,7 +300,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'wing-section';
-        sectionDiv.style.opacity = '0';
+        sectionDiv.style.display = 'block';
+        sectionDiv.style.opacity = '1';
         const sectionNumber = sections.children.length + 1;
 
         // Default values
@@ -350,10 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
         `;  
 
         sections.appendChild(sectionDiv);
-        setTimeout(() => {
-            sectionDiv.style.transition = 'opacity 0.3s';
-            sectionDiv.style.opacity = '1';
-        }, 10);
+        sectionDiv.style.transition = 'opacity 0.3s';
 
         const newButton = sectionDiv.querySelector(`#aileron-${sectionNumber}`);
         if (newButton) {
@@ -412,7 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Global calculation functions
     window.Calculate = () => {
         const wingForm = document.getElementById('wing-form');
-        handleFormSubmission(wingForm, '/wing', 'Wing')
+        window.vlmCalculationPromise = handleFormSubmission(wingForm, '/wing', 'Wing');
+        return window.vlmCalculationPromise;
     };
 
     window.CalculateAngles = () => {

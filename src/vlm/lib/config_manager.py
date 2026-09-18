@@ -20,6 +20,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
 import hashlib
+import re
 
 class GeometryConfigManager:
     """
@@ -133,9 +134,18 @@ class GeometryConfigManager:
         return errors
     
     def calculate_checksum(self, config: Dict[str, Any]) -> str:
-        """Calculates an MD5 checksum to verify data integrity."""
-        config_str = json.dumps(config, sort_keys=True)
-        return hashlib.md5(config_str.encode()).hexdigest()
+        """Calculate a canonical SHA-256 checksum for a configuration."""
+        config_str = json.dumps(config, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        return hashlib.sha256(config_str.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        filename = str(filename or '').strip()
+        if not filename or filename in {'.', '..'}:
+            raise ValueError('Filename is required')
+        if Path(filename).name != filename or not re.fullmatch(r'[A-Za-z0-9._-]+', filename):
+            raise ValueError('Filename must not contain path separators or special characters')
+        return filename
     
     def create_backup(self, filename: str) -> Optional[str]:
         """
@@ -184,6 +194,7 @@ class GeometryConfigManager:
         
         try:
             # Ensure .json extension
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
             
@@ -241,6 +252,7 @@ class GeometryConfigManager:
         
         try:
             # Ensure .json extension
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
             
@@ -255,12 +267,14 @@ class GeometryConfigManager:
                 config = json.load(f)
             
             # Extract metadata if present
-            metadata = config.pop("metadata", {})
+            metadata = config.get("metadata", {})
+            config = {key: value for key, value in config.items() if key != 'metadata'}
             result["version"] = metadata.get("version", "unknown")
             
             # Verify checksum if available
             calculated_checksum = self.calculate_checksum(config)
-            result["checksum_valid"] = calculated_checksum == metadata["checksum"]
+            stored_checksum = metadata.get("checksum")
+            result["checksum_valid"] = stored_checksum is not None and calculated_checksum == stored_checksum
             if not result["checksum_valid"]:
                 self.logger.warning(f"Checksum does not match for {filename}")
             else:
@@ -306,10 +320,10 @@ class GeometryConfigManager:
                     "created_at": metadata.get("created_at", "unknown"),
                     "modified_at": metadata.get("modified_at", "unknown"),
                     "version": metadata.get("version", "unknown"),
-                    "has_wing": "wingsections" in config,
-                    "has_horizontal_stabilizer": "horizontalstabilizer" in config,
-                    "has_vertical_stabilizer": "verticalstabilizer" in config,
-                    "wing_sections_count": len(config.get("wingsections", []))
+                    "has_wing": "wing_sections" in config or "wingsections" in config,
+                    "has_horizontal_stabilizer": "horizontal_stabilizer" in config or "horizontalstabilizer" in config,
+                    "has_vertical_stabilizer": "vertical_stabilizer" in config or "verticalstabilizer" in config,
+                    "wing_sections_count": len(config.get("wing_sections", config.get("wingsections", [])))
                 }
                 
                 configs.append(config_info)
@@ -336,6 +350,7 @@ class GeometryConfigManager:
         }
 
         try:
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
 

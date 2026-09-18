@@ -65,6 +65,8 @@ from lib.vlm import (
     plot_distribution, plot_CL_CD, plot_CLCD_vs_alpha
 )
 from lib.naca import plot_naca_airfoil, naca_csv
+from lib.naca import naca_airfoil
+from lib.geometry_serialization import serialize_airfoil, serialize_panel_geometry
 from lib.geometry import (
     plot_wing_geometry, plot_wing_geometry_2d,
     plot_wing_discretization_2d, plot_wing_discretization_3d
@@ -269,6 +271,33 @@ def apply_plotly_theme(fig: go.Figure) -> go.Figure:
     fig.update_layout(template=template)
     return fig
 
+
+def _validate_naca_code(value: Any) -> str:
+    code = str(value or '').strip()
+    if len(code) != 4 or not code.isdigit():
+        raise ValueError("NACA must be a four-digit code")
+    return code
+
+
+def _interpolate_custom_airfoil(data: dict[str, Any], point_count: int) -> tuple[np.ndarray, np.ndarray]:
+    upper = np.asarray(data.get('points_upper', []), dtype=float)
+    lower = np.asarray(data.get('points_lower', []), dtype=float)
+    if upper.ndim != 2 or lower.ndim != 2 or upper.shape[1] != 2 or lower.shape[1] != 2:
+        raise ValueError("Custom airfoil points must be arrays of [x, z] pairs")
+    if upper.shape[0] < 2 or lower.shape[0] < 2:
+        raise ValueError("Custom airfoil requires at least two points per surface")
+    if not np.isfinite(upper).all() or not np.isfinite(lower).all():
+        raise ValueError("Custom airfoil contains non-finite points")
+    chord = safe_float(data.get('chord', 1.0), 1.0)
+    if chord <= 0:
+        raise ValueError("Chord must be greater than zero")
+    x_grid = np.linspace(0.0, chord, point_count)
+    upper_order = np.argsort(upper[:, 0])
+    lower_order = np.argsort(lower[:, 0])
+    upper_z = np.interp(x_grid, upper[upper_order, 0], upper[upper_order, 1])
+    lower_z = np.interp(x_grid, lower[lower_order, 0], lower[lower_order, 1])
+    return np.concatenate((x_grid[::-1], x_grid[1:])), np.concatenate((upper_z[::-1], lower_z[1:]))
+
 # VLM: helper to create, save, and store in global dict
 def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str) -> dict:
     try:
@@ -394,9 +423,22 @@ def plane_route():
             n = safe_int(form.get("n", 10), 10)
             m = safe_int(form.get("m", 10), 10)
 
-            # Check if the plane has at least one wing section
+            # A loaded configuration is the authoritative fallback when a
+            # stale browser DOM omits its dynamically-created section inputs.
             if not plane.get("wing_sections"):
-                return jsonify({"status": "error", "message": "At least one wing section is required."}), 400
+                with vlm_sessions_lock:
+                    existing_vlm = vlm_sessions.get(session_id)
+                if existing_vlm and existing_vlm.plane.get("wing_sections"):
+                    logger.warning("Wing form omitted sections; using the loaded VLM configuration")
+                    plane = existing_vlm.export_configuration(include_flight=False)
+                    u = existing_vlm.u
+                    rho = existing_vlm.rho
+                    alpha = existing_vlm.alpha
+                    beta = existing_vlm.beta
+                    n = existing_vlm.n
+                    m = existing_vlm.m
+                else:
+                    return jsonify({"status": "error", "message": "At least one wing section is required."}), 400
             
 
             logger.info(f"Submitting VLM computation for session: {session_id}")
@@ -470,8 +512,8 @@ def results():
         if vlm.results is None or previous_results is None:
             #save state after computation
             timestamp = datetime.now().strftime("%d%m%y%H%M%S")
-            state_path = SAVED_STATES / f"{"results"}_{timestamp}.pkl"
-            vlm.save_state(str(state_path))
+            state_path = SAVED_STATES / f"results_{timestamp}.json"
+            vlm.save_results(str(state_path))
 
         wing_lift_total = np.sum(vlm.lift_sum.get('lift_wing', [])) if hasattr(vlm, 'lift_sum') else None
         hs_lift_total = np.sum(vlm.lift_sum.get('lift_hs', [])) if hasattr(vlm, 'lift_sum') else None
@@ -512,6 +554,73 @@ def plot_airfoil():
     except Exception as e:
         logger.exception("Error en /plot/airfoil")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/airfoil/preview', methods=['POST'])
+@session_required
+def airfoil_preview():
+    """Return airfoil coordinates without constructing a Plotly figure."""
+    try:
+        data = request.get_json(silent=True) or {}
+        point_count = max(10, min(5000, safe_int(data.get('n', 100), 100)))
+        chord = safe_float(data.get('chord', 1.0), 1.0)
+        if chord <= 0:
+            raise ValueError('Chord must be greater than zero')
+        alpha_rad = np.radians(safe_float(data.get('alpha', 0.0), 0.0))
+
+        if data.get('type', 'naca') == 'custom':
+            x, z = _interpolate_custom_airfoil(data, point_count)
+        else:
+            naca = _validate_naca_code(data.get('naca', '0012'))
+            x, z_upper, z_lower, _, _, _ = naca_airfoil(
+                naca, chord, alpha_rad, point_count
+            )
+            x = np.concatenate((x[::-1], x[1:]))
+            z = np.concatenate((z_upper[::-1], z_lower[1:]))
+
+        return jsonify({
+            'status': 'success',
+            'type': data.get('type', 'naca'),
+            'geometry': serialize_airfoil(x, z),
+        })
+    except (TypeError, ValueError) as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.exception('Error generating airfoil preview')
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
+
+
+@app.route('/api/wing/preview', methods=['POST'])
+@session_required
+def wing_preview():
+    """Return panel geometry for the interactive frontend without solving VLM."""
+    try:
+        data = request.get_json(silent=True) or {}
+        plane = data.get('plane', data)
+        flight = data.get('flight_parameters', {})
+        if not isinstance(plane, dict) or not plane.get('wing_sections'):
+            raise ValueError('At least one wing section is required')
+        vlm = VLM(
+            plane,
+            safe_float(flight.get('u', 50.0), 50.0),
+            safe_float(flight.get('rho', 1.225), 1.225),
+            safe_float(flight.get('alpha', 0.0), 0.0),
+            safe_float(flight.get('beta', 0.0), 0.0),
+            max(1, safe_int(flight.get('n', 10), 10)),
+            max(1, safe_int(flight.get('m', 10), 10)),
+        )
+        vlm.calculate_geometry()
+        vlm.calculate_discretization()
+        return jsonify({
+            'status': 'success',
+            'geometry': serialize_panel_geometry(vlm.panel_data),
+            'wing_area': float(vlm.wing_area),
+        })
+    except (TypeError, ValueError) as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.exception('Error generating wing preview')
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 @app.route('/save_airfoil', methods=['POST'])
 @session_required
@@ -581,8 +690,15 @@ def load_vlm_state():
         if file.filename == '':
             return jsonify({"status": "error", "message": "No file selected"}), 400
 
+        if not file.filename.endswith('.pkl'):
+            return jsonify({
+                "status": "error",
+                "message": "Legacy state upload only accepts .pkl; use the results API for JSON/NPZ results"
+            }), 400
+
         # Path to load the state file
-        path = SAVED_STATES / file.filename
+        safe_name = Path(file.filename).name
+        path = SAVED_STATES / safe_name
 
         with vlm_sessions_lock:
             if session_id not in vlm_sessions:
@@ -606,6 +722,85 @@ def load_vlm_state():
     except Exception as e:
         logger.exception("Error in /load_vlm_state")
         return jsonify({"status": "error", "message": f"Failed to load state: {e}"}), 500
+
+@app.route('/api/results/save', methods=['POST'])
+@session_required
+def save_results_api():
+    try:
+        session_id = session.get('session_id')
+        request_data = request.get_json(silent=True) or {}
+        filename = str(request_data.get('filename', f'results_{session_id}')).strip()
+        if not re.fullmatch(r'[A-Za-z0-9._-]+', filename):
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        if not filename.endswith('.json'):
+            filename += '.json'
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
+        vlm.calculate_wing_lift()
+        manifest = vlm.save_results(str(SAVED_STATES / filename))
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "configuration_checksum": manifest['configuration_checksum'],
+            "summary": manifest['summary']
+        })
+    except Exception as e:
+        logger.exception("Error saving VLM results")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/results', methods=['GET'])
+@session_required
+def list_results_api():
+    try:
+        results = []
+        for manifest_path in SAVED_STATES.glob('*.json'):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+                if manifest.get('schema') != 'vlmpy.results':
+                    continue
+                results.append({
+                    'filename': manifest_path.name,
+                    'size': manifest_path.stat().st_size,
+                    'modified_at': datetime.fromtimestamp(manifest_path.stat().st_mtime).isoformat(),
+                    'summary': manifest.get('summary', {}),
+                    'configuration_checksum': manifest.get('configuration_checksum')
+                })
+            except (OSError, ValueError, json.JSONDecodeError):
+                logger.warning("Ignoring invalid result manifest: %s", manifest_path.name)
+        results.sort(key=lambda item: item['modified_at'], reverse=True)
+        return jsonify({'status': 'success', 'results': results})
+    except Exception as e:
+        logger.exception("Error listing VLM results")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/results/load', methods=['POST'])
+@session_required
+def load_results_api():
+    try:
+        session_id = session.get('session_id')
+        request_data = request.get_json(silent=True) or {}
+        filename = str(request_data.get('filename', '')).strip()
+        if not re.fullmatch(r'[A-Za-z0-9._-]+\.json', filename):
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
+        manifest = json.loads((SAVED_STATES / filename).read_text(encoding='utf-8'))
+        vlm.apply_configuration(manifest['configuration'], include_flight=True)
+        vlm.calculate_discretization()
+        vlm.load_results(str(SAVED_STATES / filename))
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "configuration_checksum": manifest.get('configuration_checksum'),
+            "summary": manifest.get('summary', {})
+        })
+    except Exception as e:
+        logger.exception("Error loading VLM results")
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 # STL generation endpoint
 @app.route('/generate_stl', methods=['GET', 'POST'])
@@ -839,16 +1034,13 @@ def save_plane_config():
         data = request.get_json() or {}
         filename = data.get('filename', f'plane_{session_id}')
 
-        config = getattr(vlm, 'plane', {}).copy()
-        if data.get('include_flight_params', False):
-            config['flight_parameters'] = {
-                'u': getattr(vlm, 'u', None),
-                'rho': getattr(vlm, 'rho', None),
-                'alpha': getattr(vlm, 'alpha', None),
-                'beta': getattr(vlm, 'beta', None),
-                'n': getattr(vm, 'n', None) if False else getattr(vlm, 'n', None),  # fallback safe access
-                'm': getattr(vlm, 'm', None)
-            }
+        # The session VLM contains the structured sections and stabilizers.
+        # FormData is intentionally not used here because repeated fields
+        # would be flattened and could silently lose wing sections.
+        config = vlm.export_configuration(include_flight=False)
+        # Plane configurations are reproducible only when flight and mesh
+        # parameters travel with the geometry.
+        config['flight_parameters'] = vlm.export_configuration(include_flight=True)['flight_parameters']
         config['name'] = data.get('name', f'Configuración {session_id}')
         config['description'] = data.get('description', '')
 
@@ -875,21 +1067,28 @@ def load_plane_config():
 
         config = result.get('config', {})
         session_id = session.get('session_id')
+        if 'flightparameters' in config and 'flight_parameters' not in config:
+            config['flight_parameters'] = config.pop('flightparameters')
+
+        flight = config.get('flight_parameters', {})
+        plane_config = {key: value for key, value in config.items() if key != 'flight_parameters'}
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
-            if not vlm:
-                return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
-            vlm.plane = config
-
-            # Cargar parámetros de vuelo si están incluidos
-            if 'flightparameters' in config and data.get('loadflightparams', False):
-                fp = config['flightparameters']
-                vlm.u = fp.get('u', vlm.u)
-                vlm.rho = fp.get('rho', vlm.rho)
-                vlm.alpha = fp.get('alpha', vlm.alpha)
-                vlm.beta = fp.get('beta', vlm.beta)
-                vlm.n = fp.get('n', vlm.n)
-                vlm.m = fp.get('m', vlm.m)
+            if vlm is None:
+                vlm = VLM(
+                    plane_config,
+                    safe_float(flight.get('u', default_parameters.get('u', 50.0)), 50.0),
+                    safe_float(flight.get('rho', default_parameters.get('rho', 1.225)), 1.225),
+                    safe_float(flight.get('alpha', 0.0)),
+                    safe_float(flight.get('beta', 0.0)),
+                    safe_int(flight.get('n', 10), 10),
+                    safe_int(flight.get('m', 10), 10),
+                )
+                vlm_sessions[session_id] = vlm
+            vlm.apply_configuration(
+                config,
+                include_flight=data.get('loadflightparams', True)
+            )
 
         return jsonify(status="success", message=result.get('message'), config=config, checksum_valid=result.get('checksum_valid'), version=result.get('version'))
     except Exception as e:
@@ -911,6 +1110,32 @@ def delete_config():
     except Exception as e:
         logger.exception("Error in delete_config")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/apply_plane_config', methods=['POST'])
+@session_required
+def apply_plane_config():
+    try:
+        config = request.get_json() or {}
+        if not isinstance(config, dict):
+            return jsonify({'status': 'error', 'message': 'Configuration must be an object'}), 400
+        if 'metadata' in config:
+            config = {key: value for key, value in config.items() if key != 'metadata'}
+        if 'flightparameters' in config and 'flight_parameters' not in config:
+            config['flight_parameters'] = config.pop('flightparameters')
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({'status': 'error', 'message': 'No active VLM session'}), 400
+        vlm.apply_configuration(config, include_flight=True)
+        return jsonify({
+            'status': 'success',
+            'message': 'Plane configuration applied; previous results cleared',
+            'config': vlm.export_configuration(include_flight=True)
+        })
+    except Exception as e:
+        logger.exception('Error applying plane configuration')
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 @app.route('/api/validate_config', methods=['POST'])
 def validate_config():

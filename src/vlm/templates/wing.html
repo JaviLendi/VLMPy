@@ -278,12 +278,19 @@ function plotData(endpoint, filename) {
         form.reportValidity();
         return;
     }
-    fetch(endpoint, {
+    const waitForCalculation = window.vlmCalculationPromise || Promise.resolve();
+    waitForCalculation.then(() => fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: getFormDataAsJson("wing-form")
+        body: new FormData(form)
+    }))
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(error => {
+                throw new Error(error.message || `HTTP ${response.status}`);
+            });
+        }
+        return response.json();
     })
-    .then(response => response.json())
     .then(data => {
         if (data.plot) {
             // Remove the specific message from plot-area if present
@@ -292,12 +299,26 @@ function plotData(endpoint, filename) {
             if (unwantedMsg) {
                 unwantedMsg.remove();
             }
-            Plotly.newPlot("plot-area", JSON.parse(data.plot));
+            const plotData = typeof data.plot === 'string'
+                ? JSON.parse(data.plot)
+                : data.plot;
+            if (!plotData || !Array.isArray(plotData.data) || !plotData.layout) {
+                throw new Error('Invalid plot response');
+            }
+            plotData.layout.autosize = true;
+            plotData.layout.uirevision = filename || endpoint;
+            const plotPromise = plotArea.data
+                ? Plotly.react(plotArea, plotData.data, plotData.layout, {responsive: true})
+                : Plotly.newPlot(plotArea, plotData.data, plotData.layout, {responsive: true});
+            plotPromise.then(() => Plotly.Plots.resize(plotArea));
         } else {
-            console.error("No plot data received");
+            throw new Error(data.message || 'No plot data received');
         }
     })
-    .catch(error => console.error("Error generating plot:", error));
+    .catch(error => {
+        console.error("Error generating plot:", error);
+        window.messageCenter?.error(`Error generating plot: ${error.message}`);
+    });
 }
 
 // Read file as text
@@ -316,29 +337,22 @@ function loadData(input) {
     reader.onload = e => {
         try {
             const config = JSON.parse(e.target.result);
-            if (typeof populateFormWithConfig === 'function') {
-                if (populateFormWithConfig(config)) {
-                    window.messageCenter.success('New plane configuration loaded - previous results cleared.');
-                    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">New config loaded. Previous results cleared.</p>';
-                } else {
-                    window.messageCenter.error('Error populating form with configuration data.');
-                }
-            } else {
-                fetch('/loadplane', {
+            fetch('/api/apply_plane_config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
                 })
                 .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.message); }))
-                .then(d => {
-                    if (d.status === 'success' && d.plane && typeof populateFormWithConfig === 'function') {
-                        populateFormWithConfig(d.plane);
+                .then(async d => {
+                    if (d.status === 'success' && d.config && typeof window.populateFormWithConfig === 'function') {
+                        const populated = await window.populateFormWithConfig(d.config);
+                        if (!populated) throw new Error('The plane form could not be populated');
                         window.messageCenter.success('New plane configuration loaded - previous results cleared.');
+                        Plotly.purge('plot-area');
                         document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Config loaded. Click "Calculate" for new results.</p>';
                     } else throw new Error(d.message || 'No plane data returned');
                 })
                 .catch(e => window.messageCenter.error(`Error loading plane: ${e.message}`));
-            }
         } catch {
             window.messageCenter.error('Error: Invalid JSON file.');
         }
@@ -359,9 +373,68 @@ function convertAngleIfNeeded(value, isAngle = false) {
     return Math.abs(value) <= 6.28 ? radToDeg(value) : value;
 }
 
+function createSavedWingSection(sectionNumber) {
+    const section = document.createElement('div');
+    section.className = 'wing-section';
+    section.style.display = 'block';
+    section.style.opacity = '1';
+    section.innerHTML = `
+        <h4>Section ${sectionNumber}</h4>
+        <label>Chord Root (m):</label>
+        <input type="number" name="chord_root[]" step="0.1" required>
+        <label>Chord Tip (m):</label>
+        <input type="number" name="chord_tip[]" step="0.1" required>
+        <label>Span Fraction (m):</label>
+        <input type="number" name="span_fraction[]" step="any" required>
+        <label>Sweep Angle (deg):</label>
+        <input type="number" name="sweep[]" step="any" required>
+        <label>Dihedral Angle (deg):</label>
+        <input type="number" name="dihedral[]" step="any" required>
+        <label>NACA Root:</label>
+        <input type="text" name="naca_root[]" required>
+        <label>NACA Tip:</label>
+        <input type="text" name="naca_tip[]" required>
+        <input type="hidden" name="flap_toggled[]" value="0">
+        <button type="button" class="toggle-button" aria-label="Toggle Aileron">Toggle Aileron</button>
+        <div class="flap-params" style="display: none;">
+            <input type="number" name="flap_start[]" step="any">
+            <input type="number" name="flap_end[]" step="any">
+            <input type="number" name="flap_hinge_chord[]" step="any">
+            <input type="number" name="deflection_angle[]" step="any">
+            <select name="deflection_type[]">
+                <option value="symmetrical">Symmetrical</option>
+                <option value="antisymmetrical">Antisymmetrical</option>
+            </select>
+        </div>`;
+    return section;
+}
+
  // ===== MAIN FUNCTION WITH ANGLE CONVERSION =====
-function populateFormWithConfig(config) {
+window.populateFormWithConfig = async function populateFormWithConfig(config) {
     try {
+        if (typeof window.addSection !== 'function') {
+            await new Promise((resolve, reject) => {
+                const timeout = 2000;
+                const started = Date.now();
+                const waitForSectionCreator = () => {
+                    if (typeof window.addSection === 'function') {
+                        resolve();
+                    } else if (Date.now() - started >= timeout) {
+                        reject(new Error('Wing section creator is not initialized'));
+                    } else {
+                        window.setTimeout(waitForSectionCreator, 25);
+                    }
+                };
+                waitForSectionCreator();
+            });
+        }
+
+    config = config || {};
+    if (config.wingsections && !config.wing_sections) config.wing_sections = config.wingsections;
+    if (config.horizontalstabilizer && !config.horizontal_stabilizer) config.horizontal_stabilizer = config.horizontalstabilizer;
+    if (config.verticalstabilizer && !config.vertical_stabilizer) config.vertical_stabilizer = config.verticalstabilizer;
+    if (config.flightparameters && !config.flight_parameters) config.flight_parameters = config.flightparameters;
+
         // === FLIGHT PARAMETERS ===
         [
             { id: 'flight-velocity', val: config.flight_parameters?.u },
@@ -386,12 +459,19 @@ function populateFormWithConfig(config) {
         const wingSections = config.wing_sections;
         if (Array.isArray(wingSections) && wingSections.length) {
             const container = document.getElementById('sections');
-            if (container) container.innerHTML = '';
+            if (!container) throw new Error('Wing sections container not found');
+            container.innerHTML = '';
             for (let i = 0; i < wingSections.length; i++) {
-                if (typeof addSection === 'function') addSection();
-                else return false;
+                const before = container.children.length;
+                if (typeof window.addSection === 'function') window.addSection();
+                if (container.children.length === before) {
+                    container.appendChild(createSavedWingSection(i + 1));
+                }
             }
-            setTimeout(() => populateSectionsDataWithAngles(wingSections), 200);
+            if (container.children.length !== wingSections.length) {
+                throw new Error(`Expected ${wingSections.length} wing sections, created ${container.children.length}`);
+            }
+            populateSectionsDataWithAngles(wingSections);
         }
 
         // === STABILIZERS ===
@@ -400,7 +480,7 @@ function populateFormWithConfig(config) {
             const hsSection = document.getElementById('horizontal-stabilizer-section');
             if (hsSection && hsSection.style.display === 'none')
                 toggleSection('horizontal-stabilizer-section', '[aria-controls="horizontal-stabilizer-section"]');
-            setTimeout(() => populateHorizontalStabilizerDataWithAngles(hsData), 250);
+            populateHorizontalStabilizerDataWithAngles(hsData);
         }
         else { // Ensure section is hidden if no data
             const hsSection = document.getElementById('horizontal-stabilizer-section');
@@ -413,7 +493,7 @@ function populateFormWithConfig(config) {
             const vsSection = document.getElementById('vertical-stabilizer-section');
             if (vsSection && vsSection.style.display === 'none')
                 toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
-            setTimeout(() => populateVerticalStabilizerDataWithAngles(vsData), 300);
+            populateVerticalStabilizerDataWithAngles(vsData);
         }
         else { // Ensure section is hidden if no data
             const vsSection = document.getElementById('vertical-stabilizer-section');
@@ -421,6 +501,7 @@ function populateFormWithConfig(config) {
                 toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
         }
 
+        window.dispatchEvent(new CustomEvent('vlmpy:configuration-loaded', {detail: config}));
         return true;
     } catch (error) {
         console.error("Error populating form:", error);

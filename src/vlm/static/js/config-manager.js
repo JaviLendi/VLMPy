@@ -343,8 +343,8 @@ class UnifiedConfigManager {
                     this.showMessage('Warning: Invalid checksum', 'warning');
                 }
                 if (result?.status === 'success' && result.config) {
-                    if (typeof populateFormWithConfig === 'function') {
-                        const ok = populateFormWithConfig(result.config);
+                    if (typeof window.populateFormWithConfig === 'function') {
+                        const ok = await window.populateFormWithConfig(result.config);
                         if (!ok) this.showMessage('Error updating form', 'error');
                         if (ok) {
                             this.clearPlotArea('plane');
@@ -360,7 +360,74 @@ class UnifiedConfigManager {
             this.closeAllModals();
         } catch (err) {
             console.error('Error:', err);
-            this.showMessage('An error occurred while loading the VLM state.', 'error');
+            this.showMessage(`Error loading plane configuration: ${err.message}`, 'error');
+        }
+    }
+
+    async saveResultsAdvanced() {
+        const body = `
+            <form id="save-results-form" class="form">
+                <div class="form-group">
+                    <label for="results-config-filename">Filename:</label>
+                    <input type="text" id="results-config-filename" name="filename"
+                        placeholder="results_case" pattern="^[a-zA-Z0-9_\-]+$" required>
+                </div>
+            </form>`;
+        const footer = `
+            <button type="button" class="btn btn-secondary" data-action="close">Cancel</button>
+            <button type="button" class="btn btn-primary" data-action="save-results">Save</button>`;
+        this.showModal(this.templates.modalHTML('Save Results', body, footer));
+    }
+
+    async loadResultsAdvanced() {
+        try {
+            const response = await this.apiCall('/results', {method: 'GET'});
+            const results = response?.results || [];
+            if (!results.length) return this.showMessage('No saved results found', 'warning');
+            const body = `<div class="config-list">${results.map(result => `
+                <div class="config-item">
+                    <div class="config-info">
+                        <h4>${result.filename}</h4>
+                        <div class="config-details"><small>Modified: ${this._formatDate(result.modified_at)}</small></div>
+                        <div class="config-details"><small>CL: ${result.summary?.CL ?? '—'} | CD: ${result.summary?.CD ?? '—'}</small></div>
+                    </div>
+                    <div class="config-actions">
+                        <button class="btn btn-sm btn-primary" data-action="load-results" data-filename="${result.filename}">Load</button>
+                    </div>
+                </div>`).join('')}</div>`;
+            this.showModal(this.templates.modalHTML('Load Results', body,
+                '<button type="button" class="btn btn-secondary" data-action="close">Cancel</button>'));
+        } catch (error) {
+            this.showMessage(`Error listing results: ${error.message}`, 'error');
+        }
+    }
+
+    async executeSaveResults() {
+        const input = document.getElementById('results-config-filename');
+        if (!input?.checkValidity()) return input?.reportValidity();
+        try {
+            const result = await this.apiCall('/results/save', {
+                method: 'POST', body: {filename: input.value}
+            });
+            this.showMessage(result?.message || `Results saved as ${result.filename}`, 'success');
+            this.closeAllModals();
+            this.cache.clear();
+        } catch (error) {
+            this.showMessage(`Save results failed: ${error.message}`, 'error');
+        }
+    }
+
+    async executeLoadResults(filename) {
+        try {
+            const result = await this.apiCall('/results/load', {
+                method: 'POST', body: {filename}
+            });
+            if (result?.status !== 'success') throw new Error(result?.message || 'Load failed');
+            this.clearPlotArea('plane');
+            this.closeAllModals();
+            this.showMessage(`Results loaded from ${filename}`, 'success');
+        } catch (error) {
+            this.showMessage(`Load results failed: ${error.message}`, 'error');
         }
     }
 
@@ -440,6 +507,9 @@ class UnifiedConfigManager {
     }
     clearPlotArea(type) {
         if (!this.elements.plotArea) return;
+        if (window.Plotly && this.elements.plotArea.classList.contains('js-plotly-plot')) {
+            Plotly.purge(this.elements.plotArea);
+        }
         if (type === 'airfoil') {
             this.elements.plotArea.innerHTML = '<p style="color:#666;text-align:center;padding:20px;">New airfoil configuration loaded. Click "Calculate" to see updated results.</p>';
         } else {
@@ -460,8 +530,10 @@ class UnifiedConfigManager {
         switch (action) {
             case 'close': this.closeAllModals(); break;
             case 'save-config': this.executeSave(btn); break;
+            case 'save-results': this.executeSaveResults(); break;
             case 'open-save': this.saveConfigAdvanced(btn.dataset.type || 'plane'); break;
             case 'load': this.executeLoad(filename, type); break;
+            case 'load-results': this.executeLoadResults(filename); break;
             case 'delete': this.deleteConfig(filename, type); break;
             case 'saveAirfoilAdvanced': case 'savePlaneAdvanced':
                 if (action === 'saveAirfoilAdvanced') this.saveConfigAdvanced('airfoil'); else this.saveConfigAdvanced('plane');
@@ -485,6 +557,8 @@ class UnifiedConfigManager {
             savePlaneAdvanced: () => this.saveConfigAdvanced('plane'),
             loadPlaneAdvanced: () => this.loadConfigAdvanced('plane'),
             validateConfig: () => this.validateCurrentConfig('plane')
+            ,saveResultsAdvanced: () => this.saveResultsAdvanced()
+            ,loadResultsAdvanced: () => this.loadResultsAdvanced()
         };
         Object.entries(map).forEach(([k, v]) => { window[k] = v; });
     }

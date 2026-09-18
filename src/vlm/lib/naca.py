@@ -27,8 +27,15 @@ def naca_airfoil(NACA, cuerda, alpha_rad, n=100):
 
     x_c = np.linspace(0, 1, n)
 
-    # Camber line equation
-    z_c = np.where(x_c <= xf_c, (f_c*x_c/xf_c**2)*(2*xf_c - x_c), (f_c*(1 - x_c)/(1 - xf_c)**2)*(1 - 2*xf_c + x_c))
+    # Symmetric 00xx profiles have zero camber and p=0 by definition.
+    if f_c == 0 or xf_c == 0:
+        z_c = np.zeros_like(x_c)
+    else:
+        z_c = np.where(
+            x_c <= xf_c,
+            (f_c*x_c/xf_c**2)*(2*xf_c - x_c),
+            (f_c*(1 - x_c)/(1 - xf_c)**2)*(1 - 2*xf_c + x_c)
+        )
 
     # Thickness distribution
     z_e = 5*e_c*(0.2969*np.sqrt(x_c) - 0.1260*x_c - 0.3516*x_c**2 + 0.2843*x_c**3 - 0.1036*x_c**4)
@@ -56,7 +63,10 @@ def naca_airfoil_dzdx(NACA, select):
     p = int(NACA[1])/(10.0)    # Position of maximum camber
 
     # Camber line equation
-    z_c = np.where(x <= p, (m*x/p**2)*(2*p - x), (m*(1 - x)/(1 - p)**2)*(1 - 2*p + x))
+    if m == 0 or p == 0:
+        z_c = np.zeros_like(x, dtype=float)
+    else:
+        z_c = np.where(x <= p, (m*x/p**2)*(2*p - x), (m*(1 - x)/(1 - p)**2)*(1 - 2*p + x))
 
     return z_c    
 

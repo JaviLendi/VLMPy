@@ -26,6 +26,11 @@
             </div>
             <label>Load results</label>
             <div class="button-group">
+                <button type="button" class="action-button" onclick="saveResultsAdvanced()">Save results</button>
+                <button type="button" class="action-button" onclick="loadResultsAdvanced()">Load results</button>
+            </div>
+            <label>Legacy PKL state</label>
+            <div class="button-group">
                 <input type="file" id="state-file-input" accept=".pkl" />
                 <button type="button" class="action-button" onclick="loadVLM()">Load</button>
             </div>

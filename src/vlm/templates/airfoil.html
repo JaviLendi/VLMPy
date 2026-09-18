@@ -6,6 +6,16 @@
         <form id="airfoil-form" aria-label="NACA Airfoil Form">
             <label for="naca">NACA Profile:</label>
             <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
+            <div class="naca-sliders" aria-label="NACA digit controls">
+                <label for="naca-camber">Camber <output id="naca-camber-value">0</output></label>
+                <input type="range" id="naca-camber" min="0" max="9" step="1" value="{{ default_naca.NACA[0] }}">
+                <label for="naca-position">Camber position <output id="naca-position-value">0</output></label>
+                <input type="range" id="naca-position" min="0" max="9" step="1" value="{{ default_naca.NACA[1] }}">
+                <label for="naca-thickness">Thickness <output id="naca-thickness-value">0</output></label>
+                <input type="range" id="naca-thickness" min="0" max="9" step="1" value="{{ default_naca.NACA[2] }}">
+                <label for="naca-thickness-last">Thickness detail <output id="naca-thickness-last-value">0</output></label>
+                <input type="range" id="naca-thickness-last" min="0" max="9" step="1" value="{{ default_naca.NACA[3] }}">
+            </div>
             
             <label for="u">Free Stream Velocity (m/s):</label>
             <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
@@ -14,15 +24,11 @@
             <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
             
             <label for="chord">Chord Length (m):</label>
-            <input type="number" id="chord" name="chord" min="-30" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
+            <input type="number" id="chord" name="chord" min="0.001" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
             
             <label for="n">Number of Points:</label>
             <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
             
-            <div class="button-group">
-                <button type="button" class="action-button" onclick="plotAirfoil()">Make Plot</button>
-                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
-            </div>
             <h3>Manage Airfoil Configuration</h3>
             <div class="button-group">
                 <button type="button" class="action-button" onclick="saveAirfoil()">Save airfoil coordinates (CSV)</button>
@@ -34,7 +40,18 @@
 
         </form>
     </div>
-    <div id="plot-area" aria-live="polite"></div>
+    <div class="form-section airfoil-editor-section">
+        <h2>Interactive NACA Airfoil</h2>
+        <div class="airfoil-editor-toolbar">
+            <span id="airfoil-editor-status">NACA Airfoil Preview</span>
+        </div>
+        <svg id="airfoil-editor" viewBox="0 0 1000 420" role="img" aria-label="Interactive airfoil editor"></svg>
+        <div class="airfoil-legend" aria-label="Airfoil preview legend">
+            <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-upper"></span>Upper surface</span>
+            <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-lower"></span>Lower surface</span>
+            <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-camber"></span>Camber line</span>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -43,6 +60,83 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.UnifiedConfigManager) {
         window.configManager = new UnifiedConfigManager();
     }
+});
+
+function nacaPreviewCoordinates(code, chord, angleDegrees, count) {
+    const digits = String(code || '').trim();
+    if (!/^\d{4}$/.test(digits)) return null;
+    const camber = Number(digits[0]) / 100;
+    const position = Number(digits[1]) / 10;
+    const thickness = Number(digits.slice(2)) / 100;
+    const alpha = angleDegrees * Math.PI / 180;
+    const x = [];
+    const camberSurface = [];
+    const upper = [];
+    const lower = [];
+    for (let index = 0; index < count; index += 1) {
+        const fraction = index / (count - 1);
+        const camberLine = camber === 0 || position === 0
+            ? 0
+            : fraction <= position
+                ? camber * fraction / (position * position) * (2 * position - fraction)
+                : camber * (1 - fraction) / ((1 - position) ** 2) * (1 - 2 * position + fraction);
+        const thicknessLine = 5 * thickness * (
+            0.2969 * Math.sqrt(fraction) - 0.1260 * fraction
+            - 0.3516 * fraction ** 2 + 0.2843 * fraction ** 3
+            - 0.1036 * fraction ** 4
+        );
+        const xValue = chord * fraction;
+        upper.push([(xValue * Math.cos(alpha) - (camberLine + thicknessLine) * chord * Math.sin(alpha)),
+            ((camberLine + thicknessLine) * chord * Math.cos(alpha) - xValue * Math.sin(alpha))]);
+        lower.push([(xValue * Math.cos(alpha) - (camberLine - thicknessLine) * chord * Math.sin(alpha)),
+            ((camberLine - thicknessLine) * chord * Math.cos(alpha) - xValue * Math.sin(alpha))]);
+        camberSurface.push([xValue * Math.cos(alpha) - camberLine * chord * Math.sin(alpha),
+            camberLine * chord * Math.cos(alpha) - xValue * Math.sin(alpha)]);
+    }
+    return {upper, lower, camber: camberSurface};
+}
+
+function renderAirfoilEditor() {
+    const svg = document.getElementById('airfoil-editor');
+    const code = document.getElementById('naca').value;
+    const chord = Math.max(0.001, Number(document.getElementById('chord').value) || 1);
+    const angle = Number(document.getElementById('alpha').value) || 0;
+    const count = Math.max(10, Math.min(5000, Number(document.getElementById('n').value) || 100));
+    const coordinates = nacaPreviewCoordinates(code, chord, angle, count);
+    if (!svg || !coordinates) {
+        if (svg) svg.innerHTML = '<text class="airfoil-error" x="500" y="210" text-anchor="middle">Enter a valid 4-digit NACA code</text>';
+        return;
+    }
+    const toPoints = surface => surface.map(([x, z]) => `${(x / chord) * 1000},${210 - z * 900}`).join(' ');
+    svg.innerHTML = `
+        <line class="airfoil-axis" x1="0" y1="210" x2="1000" y2="210" />
+        <polyline class="airfoil-surface airfoil-upper" points="${toPoints(coordinates.upper)}" />
+        <polyline class="airfoil-surface airfoil-lower" points="${toPoints(coordinates.lower)}" />
+        <polyline class="airfoil-camber" points="${toPoints(coordinates.camber)}" />
+        <text class="airfoil-label" x="12" y="34">LE</text>
+        <text class="airfoil-label" x="965" y="34">TE</text>`;
+    document.getElementById('airfoil-editor-status').textContent = `NACA ${code}`;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sliderIds = ['naca-camber', 'naca-position', 'naca-thickness', 'naca-thickness-last'];
+    const syncNacaFromSliders = () => {
+        const digits = sliderIds.map(id => document.getElementById(id).value).join('');
+        document.getElementById('naca').value = digits;
+        sliderIds.forEach(id => {
+            const output = document.getElementById(`${id}-value`);
+            if (output) output.textContent = document.getElementById(id).value;
+        });
+        renderAirfoilEditor();
+    };
+    sliderIds.forEach(id => document.getElementById(id)?.addEventListener('input', syncNacaFromSliders));
+    document.getElementById('naca')?.addEventListener('input', () => {
+        const digits = document.getElementById('naca').value.replace(/\D/g, '').slice(0, 4).padEnd(4, '0');
+        sliderIds.forEach((id, index) => { document.getElementById(id).value = digits[index]; });
+        syncNacaFromSliders();
+    });
+    ['chord', 'alpha', 'n'].forEach(id => document.getElementById(id)?.addEventListener('input', renderAirfoilEditor));
+    syncNacaFromSliders();
 });
 
 function getFormDataAsJson(formId) {
@@ -61,10 +155,12 @@ function plotAirfoil() {
         headers: { "Content-Type": "application/json" },
         body: getFormDataAsJson("airfoil-form")
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) return response.json().then(error => { throw new Error(error.message || 'Plot failed'); });
+        return response.json();
+    })
     .then(data => {
         const filename = `naca_${document.getElementById("naca").value}_airfoil`;
-        const plotData = JSON.parse(data.plot);
         if (data.plot) {
             // Remove the specific message from plot-area if present
             const plotArea = document.getElementById('plot-area');
@@ -72,18 +168,23 @@ function plotAirfoil() {
             if (unwantedMsg) {
                 unwantedMsg.remove();
             }
+            if (window.Plotly && plotArea.classList.contains('js-plotly-plot')) Plotly.purge(plotArea);
             plotArea.innerHTML = '';
+            const plotData = typeof data.plot === 'string' ? JSON.parse(data.plot) : data.plot;
             const config = {
                     displaylogo: false,
                     displayModeBar: true,
                     toImageButtonOptions: { filename, format: 'svg' }
                 };
-            Plotly.newPlot("plot-area", plotData.data, plotData.layout, config);
+            Plotly.newPlot(plotArea, plotData.data, plotData.layout, config);
         } else {
             console.error("No plot data received");
         }
     })
-    .catch(error => console.error("Error generating plot:", error));
+    .catch(error => {
+        console.error("Error generating plot:", error);
+        window.messageCenter?.error(`Error generating plot: ${error.message}`);
+    });
 }
 
 function saveAirfoil() {
