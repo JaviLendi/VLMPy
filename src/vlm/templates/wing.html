@@ -264,13 +264,503 @@
             </div>
         </form>
     </div>
-    <div id="plot-area" aria-live="polite"></div>
+    <div class="form-section wing-preview-section" id="wing-preview-panel">
+        <div class="form-group-header">
+            <h2 style="margin: 0;">Interactive Planform Preview</h2>
+            <span id="wing-preview-status" class="wing-preview-status">Live preview</span>
+        </div>
+        <div class="wing-preview-controls" role="group" aria-label="Preview controls">
+            <label class="wing-view-control">View
+                <select id="wing-view-select" aria-label="Preview view">
+                    <option value="top-2d" data-mode="2d">Top 2D</option>
+                    <option value="top-3d" data-mode="3d">Top 3D</option>
+                    <option value="front-2d" data-mode="2d">Front 2D</option>
+                    <option value="front-3d" data-mode="3d">Front 3D</option>
+                    <option value="side-2d" data-mode="2d">Side 2D</option>
+                    <option value="side-3d" data-mode="3d">Side 3D</option>
+                </select>
+            </label>
+            <button type="button" class="btn btn-sm btn-primary" id="wing-mode-toggle" aria-pressed="true">Switch to 2D</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-mesh-toggle" aria-pressed="true">Discretization on</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-reference-toggle" aria-pressed="true">References on</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-reset-view">Reset view</button>
+        </div>
+        <svg id="wing-preview" viewBox="0 0 1000 560" role="img" aria-label="Interactive wing planform preview"></svg>
+        <div class="wing-preview-legend">
+            <span><i class="wing-legend-swatch wing-legend-wing"></i>Wing</span>
+            <span><i class="wing-legend-swatch wing-legend-aileron"></i>Ailerons</span>
+            <span><i class="wing-legend-swatch wing-legend-tail"></i>Stabilizers</span>
+            <span><i class="wing-legend-swatch wing-legend-wind"></i>Freestream</span>
+        </div>
+    </div>
+    <div id="plot-area" aria-live="polite" hidden></div>
 </div>
 
 <script>
 
 // Pass default plane from Flask to JavaScript
 const defaultPlane = {{ default_plane | tojson }};
+
+function wingPreviewNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+
+window.wingCamera = window.wingCamera || { yaw: 0.55, pitch: 0.35, zoom: 1, panX: 0, panY: 0 };
+window.wingProjection = 'planform';
+window.wingMeshVisible = true;
+window.wingReferencesVisible = true;
+window.wingPreviewMode = '3d';
+
+function setWingView(view) {
+    const [projection, mode] = view.split('-');
+    const cameraViews = {top: [1.57, 1.52], front: [1.57, 0], side: [0, 0]};
+    window.wingPreviewMode = mode === '2d' ? '2d' : '3d';
+    window.wingProjection = projection === 'top' ? 'planform' : projection;
+    const selector = document.getElementById('wing-view-select');
+    selector?.querySelectorAll('option[data-mode]').forEach(option => {
+        option.hidden = option.dataset.mode !== mode;
+    });
+    if (mode === '3d' && cameraViews[projection]) {
+        window.wingCamera = {yaw: cameraViews[projection][0], pitch: cameraViews[projection][1], zoom: 1, panX: 0, panY: 0};
+    }
+    if (selector) selector.value = view;
+    const modeToggle = document.getElementById('wing-mode-toggle');
+    if (modeToggle) {
+        modeToggle.textContent = window.wingPreviewMode === '3d' ? 'Switch to 2D' : 'Switch to 3D';
+        modeToggle.setAttribute('aria-pressed', String(window.wingPreviewMode === '3d'));
+    }
+    renderWingPreview();
+}
+
+function wingNacaHeight(code, fraction, upper) {
+    const digits = String(code || '0012').padStart(4, '0');
+    const camber = Number(digits[0]) / 100;
+    const position = Number(digits[1]) / 10;
+    const thickness = Number(digits.slice(2)) / 100;
+    const camberLine = camber === 0 || position === 0
+        ? 0
+        : fraction <= position
+            ? camber * fraction / (position * position) * (2 * position - fraction)
+            : camber * (1 - fraction) / ((1 - position) ** 2) * (1 - 2 * position + fraction);
+    const thicknessLine = 5 * thickness * (
+        0.2969 * Math.sqrt(fraction) - 0.1260 * fraction
+        - 0.3516 * fraction ** 2 + 0.2843 * fraction ** 3
+        - 0.1036 * fraction ** 4
+    );
+    return camberLine + (upper ? thicknessLine : -thicknessLine);
+}
+
+function wingInterpolatedNacaHeight(rootCode, tipCode, spanFraction, chordFraction, upper) {
+    const rootHeight = wingNacaHeight(rootCode, chordFraction, upper);
+    const tipHeight = wingNacaHeight(tipCode, chordFraction, upper);
+    return rootHeight + (tipHeight - rootHeight) * spanFraction;
+}
+
+function wingPreviewGeometry() {
+    const sections = Array.from(document.querySelectorAll('#sections .wing-section'));
+    const right = [];
+    let span = 0;
+    let lead = 0;
+    let height = 0;
+    sections.forEach(section => {
+        const chordRoot = wingPreviewNumber(section.querySelector('[name="chord_root[]"]')?.value, 1);
+        const chordTip = wingPreviewNumber(section.querySelector('[name="chord_tip[]"]')?.value, chordRoot);
+        const spanFraction = Math.max(0, wingPreviewNumber(section.querySelector('[name="span_fraction[]"]')?.value));
+        const sweep = wingPreviewNumber(section.querySelector('[name="sweep[]"]')?.value) * Math.PI / 180;
+        const dihedral = wingPreviewNumber(section.querySelector('[name="dihedral[]"]')?.value) * Math.PI / 180;
+        const nacaRoot = section.querySelector('[name="naca_root[]"]')?.value || '0012';
+        const nacaTip = section.querySelector('[name="naca_tip[]"]')?.value || nacaRoot;
+        const flapEnabled = section.querySelector('[name="flap_toggled[]"]')?.value === '1';
+        const flapStart = wingPreviewNumber(section.querySelector('[name="flap_start[]"]')?.value, 0.2);
+        const flapEnd = wingPreviewNumber(section.querySelector('[name="flap_end[]"]')?.value, 0.8);
+        const flapHinge = wingPreviewNumber(section.querySelector('[name="flap_hinge_chord[]"]')?.value, 0.25);
+        const nextSpan = span + spanFraction / 2;
+        const nextHeight = height - Math.sin(dihedral) * (spanFraction / 2);
+        const nextLead = lead + Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
+        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
+        span = nextSpan;
+        lead = nextLead;
+        height = nextHeight;
+    });
+    return right;
+}
+
+function renderWingPreview() {
+    const svg = document.getElementById('wing-preview');
+    if (!svg) return;
+    const sections = wingPreviewGeometry();
+    if (!sections.length) {
+        svg.innerHTML = '<text class="wing-preview-error" x="500" y="280" text-anchor="middle">Add a wing section to preview the planform</text>';
+        return;
+    }
+    const is3d = window.wingPreviewMode !== '2d';
+    const shapes = [];
+    const detailShapes = [];
+    const outlineShapes = [];
+    const spanPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-span')?.value, 10)));
+    const chordPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-chord')?.value, 6)));
+    const previewPanelCount = spanPanels * chordPanels;
+    const previewStride = Math.max(1, Math.ceil(previewPanelCount / 12000));
+    const totalSectionSpan = sections.reduce((sum, section) => sum + (section.tip.y - section.root.y), 0);
+    const rawPanelCounts = sections.map(section => spanPanels * (section.tip.y - section.root.y) / Math.max(totalSectionSpan, 0.001));
+    const sectionPanelCounts = rawPanelCounts.map(value => Math.max(1, Math.floor(value)));
+    while (sectionPanelCounts.reduce((sum, value) => sum + value, 0) < spanPanels) {
+        const index = sectionPanelCounts.reduce((best, value, current) =>
+            rawPanelCounts[current] - value > rawPanelCounts[best] - sectionPanelCounts[best] ? current : best, 0);
+        sectionPanelCounts[index] += 1;
+    }
+    while (sectionPanelCounts.reduce((sum, value) => sum + value, 0) > spanPanels && sectionPanelCounts.some(value => value > 1)) {
+        const index = sectionPanelCounts.findIndex(value => value > 1);
+        sectionPanelCounts[index] -= 1;
+    }
+    let allocatedPanels = 0;
+    sections.forEach((section, sectionIndex) => {
+        if (!is3d) {
+            const sectionPanels = sectionPanelCounts[sectionIndex];
+            for (let index = 0; index < sectionPanels; index += previewStride) {
+                const f0 = index / sectionPanels;
+                const f1 = Math.min(1, (index + previewStride) / sectionPanels);
+                for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
+                    const c0 = chordIndex / chordPanels;
+                    const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
+                    const atSpan = (spanFraction, chordFraction) => [
+                        section.root.x + (section.tip.x - section.root.x) * spanFraction
+                            + (section.root.c + (section.tip.c - section.root.c) * spanFraction) * chordFraction,
+                        section.root.y + (section.tip.y - section.root.y) * spanFraction,
+                        section.root.z + (section.tip.z - section.root.z) * spanFraction
+                    ];
+                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                }
+            }
+            return;
+        }
+        const sectionSpan = section.tip.y - section.root.y;
+        const sectionPanels = sectionPanelCounts[sectionIndex];
+        allocatedPanels += sectionPanels;
+        for (let index = 0; index < sectionPanels; index += previewStride) {
+            const f0 = index / sectionPanels;
+            const f1 = Math.min(1, (index + previewStride) / sectionPanels);
+            ['upper', 'lower'].forEach(surface => {
+                const upper = surface === 'upper';
+                for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
+                    const c0 = chordIndex / chordPanels;
+                    const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
+                    const atSpan = (spanFraction, chordFraction) => {
+                        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+                        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+                        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+                        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+                        const profileHeight = wingInterpolatedNacaHeight(
+                            section.root.naca,
+                            section.tip.naca,
+                            spanFraction,
+                            chordFraction,
+                            upper
+                        );
+                        return [xLead + chord * chordFraction, y, zBase - chord * profileHeight];
+                    };
+                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                }
+            });
+        }
+    });
+    const detailPoint = (section, spanFraction, chordFraction, upper = true) => {
+        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+        const height = wingInterpolatedNacaHeight(section.root.naca, section.tip.naca, spanFraction, chordFraction, upper);
+        return [xLead + chord * chordFraction, y, zBase - chord * height];
+    };
+    const addAirfoilOutline = (section, spanFraction, type) => {
+        const points = [];
+        const samples = 16;
+        for (let index = 0; index <= samples; index++) {
+            points.push(detailPoint(section, spanFraction, index / samples, true));
+        }
+        for (let index = samples; index >= 0; index--) {
+            points.push(detailPoint(section, spanFraction, index / samples, false));
+        }
+        outlineShapes.push({type, points}, {type, points: points.map(([x, y, z]) => [x, -y, z])});
+    };
+    sections.forEach(section => {
+        addAirfoilOutline(section, 0, 'wing');
+        addAirfoilOutline(section, 0.5, 'wing');
+        addAirfoilOutline(section, 1, 'wing');
+        const boundary = [
+            detailPoint(section, 0, 0, true), detailPoint(section, 1, 0, true),
+            detailPoint(section, 1, 1, true), detailPoint(section, 0, 1, true)
+        ];
+        outlineShapes.push({type: 'wing', points: boundary}, {type: 'wing', points: boundary.map(([x, y, z]) => [x, -y, z])});
+    });
+    sections.forEach(section => {
+        if (!section.flap.enabled) return;
+        const start = Math.max(0, Math.min(1, section.flap.start));
+        const end = Math.max(start, Math.min(1, section.flap.end));
+        const hinge = Math.max(0, Math.min(1, section.flap.hinge));
+        const flapPanel = [
+            detailPoint(section, start, hinge), detailPoint(section, start, 1),
+            detailPoint(section, end, 1), detailPoint(section, end, hinge)
+        ];
+        detailShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
+        outlineShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
+    });
+    const readStabilizer = prefix => {
+        const section = document.getElementById(`${prefix}-stabilizer-section`);
+        if (!section || section.hidden || getComputedStyle(section).display === 'none') return null;
+        const value = name => wingPreviewNumber(document.getElementById(`${prefix}-stabilizer-${name}`)?.value);
+        return {
+            x: value('x-translate'), z: value('z-translate'),
+            root: document.getElementById(`${prefix}-stabilizer-naca-root`)?.value || '0012',
+            tip: document.getElementById(`${prefix}-stabilizer-naca-tip`)?.value || '0012',
+            chordRoot: value('chord-root'), chordTip: value('chord-tip'),
+            span: Math.max(0, value('span-fraction')), sweep: value('sweep'),
+            dihedral: value('dihedral')
+        };
+    };
+    const addStabilizer = (data, type) => {
+        if (!data) return;
+        const sweep = Math.tan(data.sweep * Math.PI / 180);
+        const halfSpan = data.span / 2;
+        const tip = {x: data.x + sweep * halfSpan, y: halfSpan, z: data.z - Math.sin(data.dihedral * Math.PI / 180) * halfSpan, c: data.chordTip, naca: data.tip};
+        const root = {x: data.x, y: 0, z: data.z, c: data.chordRoot, naca: data.root};
+        const surface = {root, tip};
+        addAirfoilOutline(surface, 0, type);
+        addAirfoilOutline(surface, 1, type);
+        const planformBoundary = [
+            detailPoint(surface, 0, 0, true), detailPoint(surface, 1, 0, true),
+            detailPoint(surface, 1, 1, true), detailPoint(surface, 0, 1, true)
+        ];
+        outlineShapes.push({type, points: planformBoundary}, {type, points: planformBoundary.map(([x, y, z]) => [x, -y, z])});
+        const spanCount = Math.max(2, Math.min(12, Math.round(spanPanels / 2)));
+        const chordCount = Math.max(2, Math.min(8, chordPanels));
+        for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
+            const s0 = spanIndex / spanCount;
+            const s1 = (spanIndex + 1) / spanCount;
+            for (let chordIndex = 0; chordIndex < chordCount; chordIndex++) {
+                const c0 = chordIndex / chordCount;
+                const c1 = (chordIndex + 1) / chordCount;
+                ['upper', 'lower'].forEach(surfaceSide => {
+                    const upper = surfaceSide === 'upper';
+                    const panel = [
+                        detailPoint(surface, s0, c0, upper), detailPoint(surface, s0, c1, upper),
+                        detailPoint(surface, s1, c1, upper), detailPoint(surface, s1, c0, upper)
+                    ];
+                    detailShapes.push({type, points: panel}, {type, points: panel.map(([x, y, z]) => [x, -y, z])});
+                });
+            }
+        }
+    };
+    const addVerticalStabilizer = data => {
+        if (!data) return;
+        const spanCount = Math.max(2, Math.min(12, Math.round(spanPanels / 2)));
+        const chordCount = Math.max(2, Math.min(8, chordPanels));
+        const span = Math.max(data.span, 0.01);
+        const sweep = Math.tan(data.sweep * Math.PI / 180);
+        const cAt = fraction => data.chordRoot + (data.chordTip - data.chordRoot) * fraction;
+        const xAt = (spanFraction, chordFraction) => {
+            const xLead = data.x + sweep * span * spanFraction;
+            return xLead + cAt(spanFraction) * chordFraction;
+        };
+        const verticalPoint = (spanFraction, chordFraction, upper) => {
+            const zBase = data.z - span * spanFraction;
+            const thickness = cAt(spanFraction) * wingNacaHeight(data.root, chordFraction, upper);
+            return [xAt(spanFraction, chordFraction), thickness, zBase];
+        };
+        const addVerticalProfileOutline = spanFraction => {
+            const profile = [];
+            const profileSamples = 16;
+            for (let index = 0; index <= profileSamples; index++) {
+                const fraction = index / profileSamples;
+                profile.push(verticalPoint(spanFraction, fraction, true));
+            }
+            for (let index = profileSamples; index >= 0; index--) {
+                const fraction = index / profileSamples;
+                profile.push(verticalPoint(spanFraction, fraction, false));
+            }
+            outlineShapes.push({type: 'stabilizer', points: profile});
+        };
+        addVerticalProfileOutline(0);
+        addVerticalProfileOutline(1);
+        outlineShapes.push({type: 'stabilizer', points: [
+            [xAt(0, 0), 0, data.z],
+            [xAt(1, 0), 0, data.z - span],
+            [xAt(1, 1), 0, data.z - span],
+            [xAt(0, 1), 0, data.z]
+        ]});
+        for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
+            const s0 = spanIndex / spanCount;
+            const s1 = (spanIndex + 1) / spanCount;
+            for (let chordIndex = 0; chordIndex < chordCount; chordIndex++) {
+                const c0 = chordIndex / chordCount;
+                const c1 = (chordIndex + 1) / chordCount;
+                ['upper', 'lower'].forEach(surfaceSide => {
+                    const upper = surfaceSide === 'upper';
+                    detailShapes.push({type: 'stabilizer', points: [
+                        verticalPoint(s0, c0, upper), verticalPoint(s0, c1, upper),
+                        verticalPoint(s1, c1, upper), verticalPoint(s1, c0, upper)
+                    ]});
+                });
+            }
+        }
+    };
+    addStabilizer(readStabilizer('horizontal'), 'stabilizer');
+    addVerticalStabilizer(readStabilizer('vertical'));
+    const all = shapes.flat();
+    const xs = all.map(point => point[0]);
+    const ys = all.map(point => point[1]);
+    const zs = all.map(point => point[2]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    const project = ([x, y, z]) => {
+        if (!is3d) {
+            if (window.wingProjection === 'front') return [y, -z];
+            if (window.wingProjection === 'side') return [x, -z];
+            return [y, -x];
+        }
+        const camera = window.wingCamera;
+        const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
+        const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
+        const rotatedX = x * cy - y * sy;
+        const rotatedDepth = x * sy + y * cy;
+        const rotatedY = -z * cp - rotatedDepth * sp;
+        const depth = rotatedDepth * cp + z * sp;
+        const perspective = 1 + depth * 0.015;
+        return [-rotatedX * perspective, rotatedY * perspective];
+    };
+    const projected = shapes.map(shape => shape.map(project));
+    const projectedDetails = detailShapes.map(detail => ({type: detail.type, points: detail.points.map(project)}));
+    const projectedOutlines = outlineShapes.map(outline => ({type: outline.type, points: outline.points.map(project)}));
+    const alpha = wingPreviewNumber(document.getElementById('angle-of-attack')?.value) * Math.PI / 180;
+    const beta = wingPreviewNumber(document.getElementById('side-slip-angle')?.value) * Math.PI / 180;
+    const windDirection = [
+        Math.cos(alpha) * Math.cos(beta),
+        Math.sin(beta),
+        Math.sin(alpha)
+    ];
+    const geometryLength = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
+    const wingOrigin = [0, 0, 0];
+    const windLength = geometryLength * 0.15;
+    const windVectorStart = [
+        wingOrigin[0] - windDirection[0] * windLength,
+        wingOrigin[1] - windDirection[1] * windLength,
+        wingOrigin[2] - windDirection[2] * windLength
+    ];
+    const windSolidLength = windLength * 0.5;
+    const windVectorSolidEnd = [
+        windVectorStart[0] + windDirection[0] * windSolidLength,
+        windVectorStart[1] + windDirection[1] * windSolidLength,
+        windVectorStart[2] + windDirection[2] * windSolidLength
+    ];
+    const axisLength = geometryLength * 0.15;
+    const wingAxes = [
+        {name: 'x', end: [axisLength, 0, 0]},
+        {name: 'y', end: [0, axisLength, 0]},
+        {name: 'z', end: [0, 0, axisLength]}
+    ];
+    const projectedAxes = wingAxes.map(axis => ({name: axis.name, origin: project(wingOrigin), end: project(axis.end)}));
+    const referencePoints = window.wingReferencesVisible
+        ? [project(windVectorStart), project(wingOrigin), ...projectedAxes.flatMap(axis => [axis.origin, axis.end])]
+        : [];
+    const projectedPoints = projected.flat().concat(
+        projectedDetails.flatMap(detail => detail.points),
+        projectedOutlines.flatMap(outline => outline.points),
+        referencePoints
+    );
+    const projectedXs = projectedPoints.map(point => point[0]);
+    const projectedYs = projectedPoints.map(point => point[1]);
+    const pMinX = Math.min(...projectedXs), pMaxX = Math.max(...projectedXs);
+    const pMinY = Math.min(...projectedYs), pMaxY = Math.max(...projectedYs);
+    const fitScale = Math.min(900 / Math.max(pMaxX - pMinX, 0.001), 480 / Math.max(pMaxY - pMinY, 0.001)) * 0.88 * window.wingCamera.zoom;
+    const centerX = (pMinX + pMaxX) / 2, centerY = (pMinY + pMaxY) / 2;
+    const mapPoint = ([x, y]) => [
+        500 + (x - centerX) * fitScale + window.wingCamera.panX,
+        280 - (y - centerY) * fitScale + window.wingCamera.panY
+    ];
+    const rightPath = [];
+    const leftPath = [];
+    projected.forEach((shape, index) => {
+        const path = shape.map(mapPoint);
+        const target = index % 2 ? leftPath : rightPath;
+        target.push(`M ${path.map(point => point.join(' ')).join(' L ')} Z`);
+    });
+    const meshClass = window.wingMeshVisible ? ' wing-preview-mesh' : ' wing-preview-solid';
+    const paths = `
+        <path class="wing-preview-surface wing-preview-right${meshClass}" d="${rightPath.join(' ')}" />
+        <path class="wing-preview-surface wing-preview-left${meshClass}" d="${leftPath.join(' ')}" />`;
+    const detailPaths = projectedDetails.map((detail, index) => {
+        const points = detail.points.map(mapPoint);
+        const path = `M ${points.map(point => point.join(' ')).join(' L ')} Z`;
+        return `<path class="wing-preview-detail wing-preview-detail-${detail.type}" d="${path}" />`;
+    }).join('');
+    const outlinePaths = projectedOutlines.map(outline => {
+        const points = outline.points.map(mapPoint);
+        return `<path class="wing-preview-outline wing-preview-outline-${outline.type}" d="M ${points.map(point => point.join(' ')).join(' L ')} Z" />`;
+    }).join('');
+    const detailVisibility = window.wingMeshVisible ? '' : ' wing-preview-detail-hidden';
+    const wingOriginProjected = mapPoint(project(wingOrigin));
+    const windVectorStartProjected = mapPoint(project(windVectorStart));
+    const windVectorSolidEndProjected = mapPoint(project(windVectorSolidEnd));
+    const windVector = window.wingReferencesVisible ? `<line class="wing-wind-vector" x1="${windVectorStartProjected[0]}" y1="${windVectorStartProjected[1]}" x2="${windVectorSolidEndProjected[0]}" y2="${windVectorSolidEndProjected[1]}" marker-end="url(#wing-wind-arrow)" />` : '';
+    const windOriginReference = window.wingReferencesVisible ? `<line class="wing-wind-origin-reference" x1="${windVectorSolidEndProjected[0]}" y1="${windVectorSolidEndProjected[1]}" x2="${wingOriginProjected[0]}" y2="${wingOriginProjected[1]}" />` : '';
+    const axisLines = window.wingReferencesVisible ? projectedAxes.map(axis => `
+        <line class="wing-reference-axis wing-axis-${axis.name}" x1="${mapPoint(axis.origin)[0]}" y1="${mapPoint(axis.origin)[1]}" x2="${mapPoint(axis.end)[0]}" y2="${mapPoint(axis.end)[1]}" marker-end="url(#wing-axis-arrow-${axis.name})" />
+        <text class="wing-reference-label wing-axis-${axis.name}" x="${mapPoint(axis.end)[0] + 6}" y="${mapPoint(axis.end)[1] - 6}">${axis.name.toUpperCase()}</text>
+    `).join('') : '';
+    const originMarker = window.wingReferencesVisible ? `<circle class="wing-origin-marker" cx="${wingOriginProjected[0]}" cy="${wingOriginProjected[1]}" r="5" />` : '';
+    svg.innerHTML = `
+        <defs>
+            <marker id="wing-wind-arrow" markerWidth="10" markerHeight="9" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-wind-arrowhead" />
+            </marker>
+            <marker id="wing-axis-arrow-x" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-x" />
+            </marker>
+            <marker id="wing-axis-arrow-y" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-y" />
+            </marker>
+            <marker id="wing-axis-arrow-z" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-z" />
+            </marker>
+        </defs>
+        ${originMarker}
+        ${paths}
+        <g class="wing-preview-details${detailVisibility}">${detailPaths}</g>
+        <g class="wing-preview-outlines">${outlinePaths}</g>
+        ${windVector}
+        ${windOriginReference}
+        ${axisLines}`;
+    document.getElementById('wing-preview-status').textContent = `${is3d ? '3D' : '2D'} · ${sections.length} section${sections.length === 1 ? '' : 's'}${previewStride > 1 ? ' · reduced preview' : ''}`;
+}
+
+let wingPreviewFrame = null;
+document.addEventListener('input', event => {
+    if (!event.target.closest('#wing-form')) return;
+    window.cancelAnimationFrame(wingPreviewFrame);
+    wingPreviewFrame = window.requestAnimationFrame(renderWingPreview);
+});
+
+const scheduleWingPreview = () => {
+    window.cancelAnimationFrame(wingPreviewFrame);
+    wingPreviewFrame = window.requestAnimationFrame(renderWingPreview);
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sectionsContainer = document.getElementById('sections');
+    if (sectionsContainer) {
+        const sectionsObserver = new MutationObserver(scheduleWingPreview);
+        sectionsObserver.observe(sectionsContainer, {childList: true, subtree: true});
+    }
+    document.getElementById('wing-form')?.addEventListener('click', event => {
+        if (event.target.closest('[aria-controls="horizontal-stabilizer-section"], [aria-controls="vertical-stabilizer-section"]')) {
+            scheduleWingPreview();
+        }
+    });
+});
 
 function plotData(endpoint, filename) {
     const form = document.getElementById("wing-form");
@@ -279,6 +769,8 @@ function plotData(endpoint, filename) {
         return;
     }
     const waitForCalculation = window.vlmCalculationPromise || Promise.resolve();
+    document.getElementById('wing-preview-panel')?.setAttribute('hidden', '');
+    document.getElementById('plot-area')?.removeAttribute('hidden');
     waitForCalculation.then(() => fetch(endpoint, {
         method: "POST",
         body: new FormData(form)
@@ -349,7 +841,9 @@ function loadData(input) {
                         if (!populated) throw new Error('The plane form could not be populated');
                         window.messageCenter.success('New plane configuration loaded - previous results cleared.');
                         Plotly.purge('plot-area');
-                        document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Config loaded. Click "Calculate" for new results.</p>';
+                        document.getElementById('plot-area').innerHTML = '';
+                        document.getElementById('plot-area').hidden = true;
+                        document.getElementById('wing-preview-panel')?.removeAttribute('hidden');
                     } else throw new Error(d.message || 'No plane data returned');
                 })
                 .catch(e => window.messageCenter.error(`Error loading plane: ${e.message}`));
@@ -363,7 +857,10 @@ function loadData(input) {
 
 function erasePlot() {
     Plotly.purge("plot-area");
-    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Plot area cleared. Click "Calculate" to generate new results.</p>';
+    const plotArea = document.getElementById('plot-area');
+    plotArea.innerHTML = '';
+    plotArea.hidden = true;
+    document.getElementById('wing-preview-panel')?.removeAttribute('hidden');
 }
 
 const radToDeg = r => (r == null ? r : r * 57.29577951308232);
@@ -667,6 +1164,69 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.defaultPlane) {
         populateFormWithConfig(window.defaultPlane);
     }
+    window.setTimeout(renderWingPreview, 0);
+    setWingView('top-2d');
+    document.getElementById('wing-view-select')?.addEventListener('change', event => setWingView(event.target.value));
+    document.getElementById('wing-mode-toggle')?.addEventListener('click', () => {
+        const current = document.getElementById('wing-view-select')?.value || 'top-2d';
+        const [projection, mode] = current.split('-');
+        setWingView(`${projection}-${mode === '3d' ? '2d' : '3d'}`);
+    });
+    document.getElementById('wing-mesh-toggle')?.addEventListener('click', event => {
+        window.wingMeshVisible = !window.wingMeshVisible;
+        event.currentTarget.textContent = window.wingMeshVisible ? 'Discretization on' : 'Discretization off';
+        event.currentTarget.setAttribute('aria-pressed', String(window.wingMeshVisible));
+        renderWingPreview();
+    });
+    document.getElementById('wing-reference-toggle')?.addEventListener('click', event => {
+        window.wingReferencesVisible = !window.wingReferencesVisible;
+        event.currentTarget.textContent = window.wingReferencesVisible ? 'References on' : 'References off';
+        event.currentTarget.setAttribute('aria-pressed', String(window.wingReferencesVisible));
+        renderWingPreview();
+    });
+    document.getElementById('wing-reset-view')?.addEventListener('click', () => {
+        setWingView('top-2d');
+    });
+    const preview = document.getElementById('wing-preview');
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    let panMode = false;
+    preview?.addEventListener('pointerdown', event => {
+        if (window.wingPreviewMode !== '3d') return;
+        dragging = true;
+        panMode = event.shiftKey || event.button === 1 || event.button === 2;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        preview.setPointerCapture(event.pointerId);
+        preview.classList.add('is-orbiting');
+    });
+    preview?.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        if (panMode) {
+            window.wingCamera.panX += (event.clientX - lastX) * 1.2;
+            window.wingCamera.panY += (event.clientY - lastY) * 1.2;
+        } else {
+            window.wingCamera.yaw += (event.clientX - lastX) * 0.01;
+            window.wingCamera.pitch = Math.max(-1.2, Math.min(1.2, window.wingCamera.pitch + (event.clientY - lastY) * 0.01));
+        }
+        lastX = event.clientX;
+        lastY = event.clientY;
+        window.requestAnimationFrame(renderWingPreview);
+    });
+    preview?.addEventListener('pointerup', () => { dragging = false; panMode = false; preview.classList.remove('is-orbiting'); });
+    preview?.addEventListener('pointercancel', () => { dragging = false; preview.classList.remove('is-orbiting'); });
+    preview?.addEventListener('wheel', event => {
+        if (window.wingPreviewMode !== '3d') return;
+        event.preventDefault();
+        window.wingCamera.zoom = Math.max(0.35, Math.min(2.5, window.wingCamera.zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
+        window.requestAnimationFrame(renderWingPreview);
+    }, {passive: false});
+    preview?.addEventListener('contextmenu', event => event.preventDefault());
+    preview?.addEventListener('dblclick', () => {
+        window.wingCamera = { yaw: 0.55, pitch: 0.35, zoom: 1, panX: 0, panY: 0 };
+        window.requestAnimationFrame(renderWingPreview);
+    });
 });
 
 function generate_stl() {

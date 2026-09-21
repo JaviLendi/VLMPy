@@ -416,26 +416,28 @@ def curvature(self):
     """
     plane = self.plane
     panel_data = self.panel_data
-    n = self.n
-    m = self.m
-    num_wing_panels = n * m
-    
+    def surface_dimensions(name):
+        surface = self.discretization.get(name)
+        if not surface:
+            return 0, 0, 0
+        span_count = max(0, len(surface['vertical_points']) - 1)
+        chord_count = max(0, len(surface['horizontal_points']) - 1)
+        return span_count, chord_count, span_count * chord_count
+
+    n, m, num_wing_panels = surface_dimensions('wing')
+
     dz_dx_list = []
     if 'wing_sections' in plane:
         wing_panels = panel_data[:num_wing_panels]
         wing = compute_surface_curvature(plane['wing_sections'], wing_panels, n, m, is_symmetric=True)
         dz_dx_list = wing
     if 'horizontal_stabilizer' in plane:
-        n_hs = self.n_hs
-        m_hs = self.m_hs
-        num_hs_panels = n_hs * m_hs
+        n_hs, m_hs, num_hs_panels = surface_dimensions('horizontal_stabilizer')
         hs_panels = panel_data[num_wing_panels:num_wing_panels + num_hs_panels]
         hs = compute_surface_curvature([plane['horizontal_stabilizer']], hs_panels, n_hs, m_hs, is_symmetric=True)
         dz_dx_list = np.hstack((dz_dx_list, hs))
     if 'vertical_stabilizer' in plane:
-        n_vs = self.n_vs
-        m_vs = self.m_vs
-        num_vs_panels = n_vs * m_vs
+        n_vs, m_vs, num_vs_panels = surface_dimensions('vertical_stabilizer')
         vs_panels = panel_data[num_wing_panels + num_hs_panels : num_wing_panels + num_hs_panels + num_vs_panels]
         vs = compute_surface_curvature([plane['vertical_stabilizer']], vs_panels, n_vs, m_vs, is_symmetric=False, type='vs')
         dz_dx_list = np.hstack((dz_dx_list, vs))

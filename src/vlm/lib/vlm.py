@@ -330,49 +330,49 @@ class VLM:
             self.timings['discretization_cache_hit'] = True
             return
 
-        # Determine panel density
-        wing_panel_density = self.n / self.total_wing_span
-        wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
+        max_attempts = 20
+        for attempt in range(max_attempts):
+            wing_panel_density = self.n / self.total_wing_span
+            wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
 
-        # Calculate n_hs, m_hs, n_vs, m_vs
-        if 'horizontal_stabilizer' in self.plane:
-            self.n_hs = int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction']))
-            self.m_hs = int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root']))
+            if 'horizontal_stabilizer' in self.plane:
+                self.n_hs = max(1, int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction'])))
+                self.m_hs = max(1, int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root'])))
+            else:
+                self.n_hs, self.m_hs = 0, 0
+
+            if 'vertical_stabilizer' in self.plane:
+                self.n_vs = max(1, int(np.round(wing_panel_density * self.plane['vertical_stabilizer']['span_fraction'])))
+                self.m_vs = max(1, int(np.round(wing_panel_density_chord * self.plane['vertical_stabilizer']['chord_root'])))
+            else:
+                self.n_vs, self.m_vs = 0, 0
+
+            wing_vertical_points, wing_horizontal_points, wing_z_points = interpolate_wing_points(self, type="wing")
+            self.discretization = {'wing': {'vertical_points': wing_vertical_points, 'horizontal_points': wing_horizontal_points, 'z_points': wing_z_points}}
+
+            if 'horizontal_stabilizer' in self.plane:
+                hs_vertical_points, hs_horizontal_points, hs_z_points = interpolate_wing_points(self, type="hs")
+                self.discretization['horizontal_stabilizer'] = {'vertical_points': hs_vertical_points, 'horizontal_points': hs_horizontal_points, 'z_points': hs_z_points}
+
+            if 'vertical_stabilizer' in self.plane:
+                vs_vertical_points, vs_horizontal_points, vs_z_points = interpolate_wing_points(self, type="vs")
+                self.discretization['vertical_stabilizer'] = {'vertical_points': vs_vertical_points, 'horizontal_points': vs_horizontal_points, 'z_points': vs_z_points}
+
+            self.panel_data, self.wing_area, self.panel_areas = generate_plane_panels(self)
+            self.dz_c = curvature(self)
+            if len(self.dz_c) == len(self.panel_data):
+                break
+
+            print(f"Discretization retry {attempt + 1}: dz_c={len(self.dz_c)}, panels={len(self.panel_data)}; increasing n and m")
+            self.n += 1
+            self.m += 1
         else:
-            self.n_hs, self.m_hs = 0, 0
+            raise ValueError(
+                f"No se pudo ajustar la discretización tras {max_attempts} intentos: "
+                f"len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}"
+            )
 
-        if 'vertical_stabilizer' in self.plane:
-            self.n_vs = int(np.round(wing_panel_density * self.plane['vertical_stabilizer']['span_fraction']))
-            self.m_vs = int(np.round(wing_panel_density_chord * self.plane['vertical_stabilizer']['chord_root']))
-        else:
-            self.n_vs, self.m_vs = 0, 0
-
-        # Generate discretization points
-        wing_vertical_points, wing_horizontal_points, wing_z_points = interpolate_wing_points(self, type="wing")
-        self.discretization = {'wing': {'vertical_points': wing_vertical_points, 'horizontal_points': wing_horizontal_points, 'z_points': wing_z_points}}
-
-        if 'horizontal_stabilizer' in self.plane:
-            hs_vertical_points, hs_horizontal_points, hs_z_points = interpolate_wing_points(self, type="hs")
-            self.discretization['horizontal_stabilizer'] = {'vertical_points': hs_vertical_points, 'horizontal_points': hs_horizontal_points, 'z_points': hs_z_points}
-
-        if 'vertical_stabilizer' in self.plane:
-            vs_vertical_points, vs_horizontal_points, vs_z_points = interpolate_wing_points(self, type="vs")
-            self.discretization['vertical_stabilizer'] = {'vertical_points': vs_vertical_points, 'horizontal_points': vs_horizontal_points, 'z_points': vs_z_points}
-
-        # Generate panels
-        self.panel_data, self.wing_area, self.panel_areas = generate_plane_panels(self)
-        print(f"wing_area: {self.wing_area}")
-
-        # Curvature calculation
-        self.dz_c = curvature(self)
-        print(f"Length of dz_c: {len(self.dz_c)}")
-        print(f"Length of panel_data: {len(self.panel_data)}")
-
-        # Consistency check
-        if len(self.dz_c) != len(self.panel_data):
-            raise ValueError(f"Inconsistencia: len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}")
-
-        self._discretization_cache_key = cache_key
+        self._discretization_cache_key = (self._geometry_cache_key, int(self.n), int(self.m))
         self._panel_cache_token += 1
         self._influence_cache.clear()
         self._clear_solution_state()
