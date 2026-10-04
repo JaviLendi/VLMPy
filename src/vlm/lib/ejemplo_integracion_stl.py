@@ -13,7 +13,7 @@ def example_1_from_vlm_complete():
     """
 
     from vlm import VLM
-    from wing_to_stl_improved import wing_to_stl_with_naca_profile
+    from wing_to_stl import wing_to_stl_with_naca_profile
 
     print("\n" + "="*70)
     print("EJEMPLO 1: STL Completo desde VLM (con análisis aerodinámico)")
@@ -66,7 +66,7 @@ def example_2_quick_generation():
     Solo geometría 3D con perfil NACA
     """
 
-    from wing_to_stl_improved import wing_to_stl_with_naca_config
+    from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
     print("EJEMPLO 2: STL Rápido (sin VLM)")
@@ -108,7 +108,7 @@ def example_3_complex_wing():
     Ejemplo 3: Ala compleja con múltiples secciones y variación de perfil
     """
 
-    from wing_to_stl_improved import wing_to_stl_with_naca_config
+    from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
     print("EJEMPLO 3: Ala Compleja con Múltiples Secciones")
@@ -175,7 +175,7 @@ def example_4_comparison():
     Permite visualizar el impacto de la resolución
     """
 
-    from wing_to_stl_improved import wing_to_stl_with_naca_config
+    from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
     print("EJEMPLO 4: Comparación de Resoluciones NACA")

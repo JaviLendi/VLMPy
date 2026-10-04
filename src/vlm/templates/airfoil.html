@@ -1,11 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
-    <div class="form-section">
-        <h2>NACA Airfoil Definition</h2>
+<div class="container airfoil-layout">
+    <div class="form-section airfoil-form-panel">
+        <div class="results-header">
+            <div>
+                <span class="results-eyebrow">Geometry input</span>
+                <h2>NACA Airfoil</h2>
+                <p>Define the profile and flight condition for the interactive preview.</p>
+            </div>
+        </div>
         <form id="airfoil-form" aria-label="NACA Airfoil Form">
-            <label for="naca">NACA Profile:</label>
-            <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
+            <section class="airfoil-input-section" aria-labelledby="airfoil-profile-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Profile</span><h3 id="airfoil-profile-title">NACA definition</h3></div></div>
+                <label for="naca">NACA Profile:</label>
+                <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
             <div class="naca-sliders" aria-label="NACA digit controls">
                 <label for="naca-camber">Camber <output id="naca-camber-value">0</output></label>
                 <input type="range" id="naca-camber" min="0" max="9" step="1" value="{{ default_naca.NACA[0] }}">
@@ -16,32 +24,43 @@
                 <label for="naca-thickness-last">Thickness detail <output id="naca-thickness-last-value">0</output></label>
                 <input type="range" id="naca-thickness-last" min="0" max="9" step="1" value="{{ default_naca.NACA[3] }}">
             </div>
+            </section>
             
-            <label for="u">Free Stream Velocity (m/s):</label>
-            <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
+            <section class="airfoil-input-section" aria-labelledby="airfoil-condition-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Condition</span><h3 id="airfoil-condition-title">Flight and geometry</h3></div></div>
+                <label for="u">Free Stream Velocity (m/s):</label>
+                <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
             
-            <label for="alpha">Angle of Attack (deg):</label>
-            <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
+                <label for="alpha">Angle of Attack (deg):</label>
+                <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
             
-            <label for="chord">Chord Length (m):</label>
-            <input type="number" id="chord" name="chord" min="0.001" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
+                <label for="chord">Chord Length (m):</label>
+                <input type="number" id="chord" name="chord" min="0.001" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
             
-            <label for="n">Number of Points:</label>
-            <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
+                <label for="n">Number of Points:</label>
+                <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
+            </section>
             
-            <h3>Manage Airfoil Configuration</h3>
-            <div class="button-group">
+            <section class="airfoil-input-section airfoil-actions-section" aria-labelledby="airfoil-actions-title">
+            <div class="section-heading"><div><span class="results-eyebrow">Data</span><h3 id="airfoil-actions-title">Save and load</h3></div></div>
+            <div class="button-group action-row">
                 <button type="button" class="action-button" onclick="saveAirfoil()">Save airfoil coordinates (CSV)</button>
                 <button type="button" class="action-button" onclick="saveAirfoilAdvanced()">Save</button>
                 <button type="button" class="action-button" onclick="loadAirfoilAdvanced()">Load</button>
                 <!--<button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">-->
             </div>
+            </section>
 
         </form>
     </div>
-    <div class="form-section airfoil-editor-section">
-        <h2>Interactive NACA Airfoil</h2>
+    <div class="form-section airfoil-editor-section surface-panel">
+        <div class="results-header">
+            <div>
+                <span class="results-eyebrow">Live preview</span>
+                <h2>Interactive NACA Airfoil</h2>
+            </div>
+        </div>
         <div class="airfoil-editor-toolbar">
             <span id="airfoil-editor-status">NACA Airfoil Preview</span>
         </div>
@@ -96,7 +115,7 @@ function nacaPreviewCoordinates(code, chord, angleDegrees, count) {
     return {upper, lower, camber: camberSurface};
 }
 
-function renderAirfoilEditor() {
+window.renderAirfoilEditor = function renderAirfoilEditor() {
     const svg = document.getElementById('airfoil-editor');
     const code = document.getElementById('naca').value;
     const chord = Math.max(0.001, Number(document.getElementById('chord').value) || 1);
@@ -150,11 +169,15 @@ function plotAirfoil() {
         form.reportValidity();
         return;
     }
-    fetch("/plot/airfoil", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: getFormDataAsJson("airfoil-form")
-    })
+    const formData = Object.fromEntries(new FormData(form));
+    const plotRequest = window.vlmpyCore
+        ? window.vlmpyCore.request('/plot/airfoil', {method: 'POST', body: formData})
+        : fetch('/plot/airfoil', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        }).then(response => response.json());
+    plotRequest
     .then(response => {
         if (!response.ok) return response.json().then(error => { throw new Error(error.message || 'Plot failed'); });
         return response.json();

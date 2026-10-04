@@ -5,6 +5,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VLMPy</title>
+    <!-- Prevent transition/animation flicker until the app enables them -->
+    <style>
+        /* Disable transitions and animations on initial render to avoid flicker */
+        html:not(.transitions-enabled) *, html:not(.transitions-enabled) *::before, html:not(.transitions-enabled) *::after {
+            transition: none !important;
+            animation: none !important;
+        }
+          /* Provide an immediate background to avoid white flash while CSS loads */
+          html { background-color: #121212; color: #e0e0e0; }
+          /* Provide a critical default landing container to avoid layout shift
+              before CSS variables are parsed (prevents hero width jumping). */
+          :root { --landing-container: 1200px; }
+        /* Minimal layout rules to avoid large layout shifts before the main CSS loads */
+        .navbar { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; position: relative; }
+        .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .nav-links { display: flex; align-items: center; gap: 1rem; }
+        .theme-toggle { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+        /* Hide material-symbols text fallback until the font is available to avoid showing names like "computer" */
+        html.icons-loading .material-symbols-outlined { visibility: hidden; opacity: 0; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
@@ -12,20 +34,54 @@
     {# <script defer src="{{ url_for('static', filename='js/auto-translate.js') }}"></script> #}
     <script defer src="{{ url_for('static', filename='js/plotly-3.0.1.min.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/message-center.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/vlmpy-core.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/config-manager.js') }}"></script>
     <script>
-        // Apply saved theme immediately
+        // Apply saved theme immediately and set an inline background/color
+        // to avoid a flash of the wrong theme while stylesheets load.
         (function() {
-            const savedMode = localStorage.getItem('appearance-mode') || 'System';
-            const html = document.documentElement;
-            if (savedMode === 'Light') {
-                html.classList.add('light-mode');
-            } else if (savedMode === 'Dark') {
-                html.classList.remove('light-mode');
-            } else if (savedMode === 'System') {
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                html.classList.toggle('light-mode', !prefersDark);
+            try {
+                const savedMode = localStorage.getItem('appearance-mode') || 'System';
+                const html = document.documentElement;
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                // Set a data attribute on <html> so critical CSS can style the
+                // theme-toggle immediately without querying DOM elements yet.
+                html.setAttribute('data-appearance', savedMode);
+                if (savedMode === 'Light') {
+                    html.classList.add('light-mode');
+                    html.style.backgroundColor = '#f4f4f9';
+                    html.style.color = '#1a1a1a';
+                } else if (savedMode === 'Dark') {
+                    html.classList.remove('light-mode');
+                    html.style.backgroundColor = '#121212';
+                    html.style.color = '#e0e0e0';
+                } else {
+                    // System
+                    const isDark = prefersDark;
+                    html.classList.toggle('light-mode', !isDark);
+                    html.style.backgroundColor = isDark ? '#121212' : '#f4f4f9';
+                    html.style.color = isDark ? '#e0e0e0' : '#1a1a1a';
+                }
+            } catch (e) {
+                // silent fallback
             }
+        })();
+    </script>
+    <script>
+        // Prevent the text fallback of Material Symbols (e.g. showing the glyph name)
+        // by keeping icons hidden until the font loads or a timeout elapses.
+        (function() {
+            try {
+                document.documentElement.classList.add('icons-loading');
+                const fontName = 'Material Symbols Outlined';
+                const loadPromise = (document.fonts && document.fonts.load)
+                    ? document.fonts.load(`1em "${fontName}"`)
+                    : Promise.resolve();
+                const timeout = new Promise(resolve => setTimeout(resolve, 1500));
+                Promise.race([loadPromise, timeout]).then(() => {
+                    try { document.documentElement.classList.remove('icons-loading'); } catch(e){}
+                }).catch(() => { try { document.documentElement.classList.remove('icons-loading'); } catch(e){} });
+            } catch (e) { try { document.documentElement.classList.remove('icons-loading'); } catch(e){} }
         })();
     </script>
 </head>
@@ -44,126 +100,181 @@
             </div>
             <div class="nav-links" id="nav-links">
                 <div class="nav-nav" id="nav-nav">
-                <a class="nav-init" href="/">
-                    <span class="material-symbols-outlined" style="vertical-align:middle;">home</span> Home
-                </a>
+                <a class="nav-init" href="/">Home</a>
                 <a href="/airfoil">
-                    <span class="material-symbols-outlined" style="vertical-align:middle;">Joystick</span> Airfoil
+                    Airfoil
                 </a>
                 <a href="/wing">
-                    <span class="material-symbols-outlined" style="vertical-align:middle;">label_important</span> Wings
+                    Wings
                 </a>
                 <a href="/results">
-                    <span class="material-symbols-outlined" style="vertical-align:middle;">insert_chart</span> Results
+                    Results
                 </a>
-                <a class="nav-cta" href="/airfoil">
+                <!-- <a class="nav-cta" href="/airfoil">
                     <span class="material-symbols-outlined" style="vertical-align:middle;">play_arrow</span> Begin
-                </a>
+                </a> -->
+                </div>
+                <!-- Theme toggle inside nav-links for inline alignment -->
+                <div class="appearance-toggle" role="region" aria-label="Selector de tema">
+                    <input class="sr-only" id="theme-toggle" type="checkbox" aria-hidden="true" />
+                    <label for="theme-toggle" class="theme-toggle" id="theme-toggle-label" role="button" aria-pressed="false" tabindex="0" title="Cambiar tema (System → Light → Dark)">
+                        <span class="material-symbols-outlined" id="theme-light">light_mode</span>
+                        <span class="material-symbols-outlined" id="theme-system">computer</span>
+                        <span class="material-symbols-outlined" id="theme-dark">dark_mode</span>
+                    </label>
                 </div>
             </div>
             <button class="menu-toggle-landing" id="landing-menu-toggle" aria-label="Abrir menú">
                 <i class="fas fa-bars"></i>
                 <i class="fas fa-times"></i>
             </button>
-            <!-- Appearance Toggle Button -->
-            <div class="appearance-toggle">
-                <div class="toggle-buttons" id="appearance-toggle-buttons">
-                    <button class="toggle-trigger" aria-label="Cambiar apariencia">
-                        <i class="fas fa-palette"></i>
-                    </button>
-                    <div class="appearance-options" aria-label="Opciones de apariencia">
-                        <button class="appearance-btn" data-mode="Light" aria-label="Light Mode">
-                            <i class="fas fa-sun"></i>
-                        </button>
-                        <button class="appearance-btn" data-mode="Dark" aria-label="Dark Mode">
-                            <i class="fas fa-moon"></i>
-                        </button>
-                        <button class="appearance-btn" data-mode="System" aria-label="System Mode">
-                            <i class="fas fa-desktop"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
             <script>
-            // Appearance toggle logic
             document.addEventListener('DOMContentLoaded', function() {
-                const toggleButtons = document.getElementById('appearance-toggle-buttons');
-                const trigger = toggleButtons.querySelector('.toggle-trigger');
-                const options = toggleButtons.querySelector('.appearance-options');
-                const btns = options.querySelectorAll('.appearance-btn');
-                let panelOpen = false;
-
-                // Show/hide options panel
-                trigger.addEventListener('click', function(e) {
-                    panelOpen = !panelOpen;
-                    toggleButtons.classList.toggle('show-options', panelOpen);
-                    toggleButtons.classList.toggle('hide-options', !panelOpen);
-                });
-
-                // Set active button and save mode
-                btns.forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        btns.forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        localStorage.setItem('appearance-mode', btn.dataset.mode);
-                        panelOpen = false;
-                        toggleButtons.classList.remove('show-options');
-                        toggleButtons.classList.add('hide-options');
-                        // Apply theme immediately
-                        const html = document.documentElement;
-                        if (btn.dataset.mode === 'Light') {
-                            html.classList.add('light-mode');
-                        } else if (btn.dataset.mode === 'Dark') {
-                            html.classList.remove('light-mode');
-                        } else if (btn.dataset.mode === 'System') {
-                            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                            html.classList.toggle('light-mode', !prefersDark);
-                        }
-                    });
-                    // Set active state on load
-                    if (localStorage.getItem('appearance-mode') === btn.dataset.mode) {
-                        btn.classList.add('active');
-                    }
-                });
-
-                // Hide panel when clicking outside
-                document.addEventListener('click', function(e) {
-                    if (!toggleButtons.contains(e.target) && panelOpen) {
-                        panelOpen = false;
-                        toggleButtons.classList.remove('show-options');
-                        toggleButtons.classList.add('hide-options');
-                    }
-                });
-
-                // Hamburger menu logic
+                // Hamburger menu logic (kept)
                 const menuToggle = document.getElementById('landing-menu-toggle');
                 const navLinks = document.getElementById('nav-links');
                 const overlay = document.querySelector('.navbar-overlay');
                 function closeMenu() {
-                    navLinks.classList.remove('open');
-                    if (overlay) overlay.classList.remove('active');
+                    // animate out
+                    navLinks.classList.remove('animating-in');
+                    navLinks.classList.add('animating-out');
+                    menuToggle.classList.remove('open');
+                    menuToggle.setAttribute('aria-expanded','false');
+                    navLinks.setAttribute('aria-hidden','true');
+                    document.querySelector('.navbar')?.classList.remove('open');
+                    // wait for animation end then cleanup
+                    function onOut(e) {
+                        if (e && e.target !== navLinks) return;
+                        navLinks.classList.remove('open','animating-out');
+                        if (overlay) overlay.classList.remove('active');
+                        navLinks.removeEventListener('animationend', onOut);
+                    }
+                    navLinks.addEventListener('animationend', onOut);
                 }
                 function openMenu() {
+                    // ensure any pending out animation is cleared
+                    navLinks.classList.remove('animating-out');
+                    // mark open state for navbar/hamburger
+                    document.querySelector('.navbar')?.classList.add('open');
+                    navLinks.classList.add('animating-in');
+                    // add open so items become focusable/visible; animation handles the motion
                     navLinks.classList.add('open');
                     if (overlay) overlay.classList.add('active');
-                }
-                menuToggle.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    if (navLinks.classList.contains('open')) {
-                        closeMenu();
-                    } else {
-                        openMenu();
+                    menuToggle.classList.add('open');
+                    menuToggle.setAttribute('aria-expanded','true');
+                    navLinks.setAttribute('aria-hidden','false');
+                    // focus first focusable element inside the panel for keyboard users after animation
+                    const firstLink = navLinks.querySelector('a, button, [tabindex]:not([tabindex="-1"])');
+                    function onInEnd(e) {
+                        if (e && e.target !== navLinks) return;
+                        if (firstLink) firstLink.focus();
+                        navLinks.classList.remove('animating-in');
+                        navLinks.removeEventListener('animationend', onInEnd);
                     }
-                });
-                // Close menu when clicking outside or overlay
-                document.addEventListener('click', function(e) {
-                    if (navLinks.classList.contains('open') && !navLinks.contains(e.target) && !menuToggle.contains(e.target)) {
-                        closeMenu();
-                    }
-                });
-                if (overlay) {
-                    overlay.addEventListener('click', closeMenu);
+                    navLinks.addEventListener('animationend', onInEnd);
                 }
+                if (menuToggle) menuToggle.addEventListener('click', e => { e.stopPropagation(); navLinks.classList.contains('open') ? closeMenu() : openMenu(); });
+                document.addEventListener('click', function(e) { if (navLinks.classList.contains('open') && !navLinks.contains(e.target) && !menuToggle.contains(e.target)) closeMenu(); });
+                if (overlay) overlay.addEventListener('click', closeMenu);
+
+                // Theme tri-state logic: System -> Light -> Dark -> System
+                const label = document.getElementById('theme-toggle-label');
+                const checkbox = document.getElementById('theme-toggle');
+                const html = document.documentElement;
+                const modes = ['System','Light','Dark'];
+                let current = localStorage.getItem('appearance-mode') || 'System';
+
+                function applyMode(mode, persist=true) {
+                    // If this change should be persisted by user action, show a short
+                    // overlay that cross-fades from the current theme to the new one.
+                    function createOverlayWithOldBg() {
+                        let overlay = document.getElementById('theme-transition-overlay');
+                        if (!overlay) {
+                            overlay = document.createElement('div');
+                            overlay.id = 'theme-transition-overlay';
+                            document.body.appendChild(overlay);
+                        }
+                        const rootStyles = getComputedStyle(html);
+                        const oldBg = rootStyles.getPropertyValue('--primary-bg') || rootStyles.backgroundColor || '#000';
+                        overlay.style.background = oldBg.trim();
+                        overlay.style.pointerEvents = 'none';
+                        overlay.style.position = 'fixed';
+                        overlay.style.inset = '0';
+                        overlay.style.zIndex = '99999';
+                        overlay.style.opacity = '1';
+                        overlay.style.transition = 'opacity var(--transition)';
+                        overlay.style.display = 'block';
+                        // ensure painted
+                        overlay.getBoundingClientRect();
+                        return overlay;
+                    }
+
+                    current = mode;
+                    // If this is a user-triggered change (persist true), animate overlay.
+                    const overlay = persist ? createOverlayWithOldBg() : null;
+
+                    // reset mode classes on label
+                    label.classList.remove('mode-light','mode-dark','mode-system');
+                    if (mode === 'Light') {
+                        html.classList.add('light-mode');
+                        checkbox.checked = true;
+                        label.setAttribute('aria-pressed','true');
+                        label.title = 'Tema: Light (clic para Dark)';
+                        label.classList.add('mode-light');
+                        html.setAttribute('data-appearance','Light');
+                    } else if (mode === 'Dark') {
+                        html.classList.remove('light-mode');
+                        checkbox.checked = false;
+                        label.setAttribute('aria-pressed','false');
+                        label.title = 'Tema: Dark (clic para System)';
+                        label.classList.add('mode-dark');
+                        html.setAttribute('data-appearance','Dark');
+                    } else { // System
+                        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        html.classList.toggle('light-mode', !prefersDark);
+                        checkbox.checked = !prefersDark;
+                        label.setAttribute('aria-pressed','mixed');
+                        label.title = 'Tema: System (clic para Light)';
+                        label.classList.add('mode-system');
+                        html.setAttribute('data-appearance','System');
+                    }
+                    if (persist) localStorage.setItem('appearance-mode', mode);
+
+                    // small animated feedback on the toggle itself
+                    label.classList.add('animate');
+                    setTimeout(() => label.classList.remove('animate'), 360);
+
+                    // If we created an overlay, fade it out to reveal the new theme
+                    if (overlay) {
+                        // give browser a frame to apply the new theme, then fade overlay out
+                        requestAnimationFrame(() => {
+                            // allow the theme's variable-driven transitions to run
+                            // then fade the overlay
+                            setTimeout(() => {
+                                overlay.style.opacity = '0';
+                                // remove overlay after the transition ends (give small buffer)
+                                const removeDelay = 600; // ms
+                                setTimeout(() => { try { overlay.remove(); } catch(e){} }, removeDelay);
+                            }, 20);
+                        });
+                    }
+                }
+
+                // React to system changes when in System mode
+                const mq = window.matchMedia('(prefers-color-scheme: dark)');
+                mq.addEventListener?.('change', (e) => { if (current === 'System') applyMode('System', false); });
+
+                // Initialize
+                applyMode(current, false);
+
+                // Cycle modes on click or Enter/Space
+                function cycleMode() {
+                    const idx = modes.indexOf(current);
+                    const next = modes[(idx + 1) % modes.length];
+                    applyMode(next, true);
+                }
+                label.addEventListener('click', cycleMode);
+                label.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cycleMode(); } });
             });
             </script>
             <!-- Overlay for mobile menu -->
@@ -175,13 +286,36 @@
         <main class="main-content">
             {% block content %}{% endblock %}
         </main>
-        <footer class="modal-footer">
+        <footer class="footer">
             <p>&copy; 2025 VLMPy. All rights reserved.</p>
         </footer>
         <!--Message container-->
         <div id="message-container" class="message-container" aria-live="polite"></div>
         <!-- Scripts -->
         <script defer src="{{ url_for('static', filename='js/script.js') }}"></script>
+        <script>
+            // Enable transitions/animations after the first paint to avoid
+            // initial flicker. Also remove any stale theme overlay if present.
+            (function() {
+                function enableTransitions() {
+                    try {
+                        document.documentElement.classList.add('transitions-enabled');
+                        // remove temporary inline background/style we set earlier
+                        document.documentElement.style.backgroundColor = '';
+                        document.documentElement.style.color = '';
+                        const overlay = document.getElementById('theme-transition-overlay');
+                        if (overlay) {
+                            overlay.style.opacity = '0';
+                            setTimeout(() => { try { overlay.remove(); } catch(e){} }, 500);
+                        }
+                    } catch (e) {}
+                }
+                // Use requestAnimationFrame twice to wait for paint, then enable
+                requestAnimationFrame(() => requestAnimationFrame(enableTransitions));
+                // Fallback: ensure transitions are enabled after 1s
+                setTimeout(enableTransitions, 1000);
+            })();
+        </script>
     </div>
 </body>
 </html>

@@ -30,7 +30,7 @@ except Exception:
 try:
     from flask import (
         Flask, render_template, request, jsonify, session,
-        redirect, url_for, send_file
+        redirect, url_for, send_file, make_response
     )
 except Exception as e:
     raise ImportError("Flask is required for this application") from e
@@ -233,6 +233,19 @@ def session_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+def legacy_compatibility(f):
+    """Mark retained legacy endpoints while the JSON APIs are preferred."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        response = f(*args, **kwargs)
+        if isinstance(response, tuple):
+            response = make_response(*response)
+        response.headers['Deprecation'] = 'true'
+        response.headers['X-VLMPy-API-Status'] = 'legacy'
+        return response
+    return decorated_function
+
 @app.before_request
 def ensure_session():
     if "session_id" not in session:
@@ -345,6 +358,12 @@ def _parse_wing_form(form) -> dict:
             sweep = np.radians(safe_float(form.getlist("sweep[]")[i], 0.0))
             alpha = np.radians(safe_float(form.get("alpha", 0.0), 0.0))
             dihedral = np.radians(safe_float(form.getlist("dihedral[]")[i], 0.0))
+            # Optional per-section geometric twist (degrees in the form -> radians internally)
+            try:
+                twist_deg_list = form.getlist("twist[]")
+                twist = np.radians(safe_float(twist_deg_list[i], 0.0)) if i < len(twist_deg_list) else 0.0
+            except Exception:
+                twist = 0.0
             naca_root = form.getlist("naca_root[]")[i] if i < len(form.getlist("naca_root[]")) else ""
             naca_tip = form.getlist("naca_tip[]")[i] if i < len(form.getlist("naca_tip[]")) else ""
 
@@ -354,6 +373,7 @@ def _parse_wing_form(form) -> dict:
                 "span_fraction": span_fraction,
                 "sweep": sweep,
                 "alpha": alpha,
+                "twist": twist,
                 "dihedral": dihedral,
                 "NACA_root": naca_root,
                 "NACA_tip": naca_tip
@@ -623,6 +643,7 @@ def wing_preview():
         return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 @app.route('/save_airfoil', methods=['POST'])
+@legacy_compatibility
 @session_required
 def save_airfoil():
     try:
@@ -630,8 +651,10 @@ def save_airfoil():
         naca = data.get('naca', '1310')
         chord = safe_float(data.get('chord', 1.0))
         alpha = safe_float(data.get('alpha', 0.0))
+        velocity = safe_float(data.get('u', default_naca.get('u', 50.0)))
+        points = safe_int(data.get('n', default_naca.get('n', 100)))
 
-        airfoil_data = {"naca": naca, "chord": chord, "alpha": alpha}
+        airfoil_data = {"naca": naca, "chord": chord, "alpha": alpha, "u": velocity, "n": points}
         json_path = SAVED_AIRFOILS / f"{naca}.json"
 
         with sessions_lock:
@@ -647,6 +670,7 @@ def save_airfoil():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/load_airfoil', methods=['POST'])
+@legacy_compatibility
 @session_required
 def load_airfoil():
     try:
@@ -672,7 +696,7 @@ def load_airfoil():
         if not (-90 <= airfoil_data['alpha'] <= 90):
             return jsonify({"status": "error", "message": "Angle of attack must be between -90 and 90"}), 400
         if not (-30 <= airfoil_data['chord'] <= 30):
-            return jsonify({"status": "error", "message": "Chord length must be between -30 and 30"}), 400
+            return jsonify({"status": "error", "message": "Chord length must be between 0.001 and 30"}), 400
 
         return jsonify({"status": "success", "airfoil": airfoil_data}), 200
     except Exception as e:
@@ -680,6 +704,7 @@ def load_airfoil():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/load_vlm_state', methods=['POST'])
+@legacy_compatibility
 @session_required
 def load_vlm_state():
     try:
@@ -802,6 +827,38 @@ def load_results_api():
         logger.exception("Error loading VLM results")
         return jsonify({"status": "error", "message": str(e)}), 400
 
+
+@app.route('/api/results', methods=['DELETE'])
+@session_required
+def delete_results_api():
+    try:
+        data = request.get_json() or {}
+        filename = str(data.get('filename', '')).strip()
+        if not filename:
+            return jsonify({"status": "error", "message": "Filename required"}), 400
+        # Ensure filename looks sane
+        if not re.fullmatch(r'[A-Za-z0-9._-]+\.json', filename):
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        manifest_path = SAVED_STATES / filename
+        if not manifest_path.exists():
+            return jsonify({"status": "error", "message": "Result not found"}), 404
+        try:
+            # Remove associated arrays file if present
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            arrays_file = manifest.get('arrays', {}).get('file')
+            if arrays_file:
+                arrays_path = manifest_path.parent / arrays_file
+                if arrays_path.exists():
+                    arrays_path.unlink()
+            manifest_path.unlink()
+            return jsonify({"status": "success", "message": f"Deleted {filename}"})
+        except Exception as e:
+            logger.exception("Error deleting result files")
+            return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e:
+        logger.exception("Error in delete_results_api")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # STL generation endpoint
 @app.route('/generate_stl', methods=['GET', 'POST'])
 @session_required
@@ -818,14 +875,15 @@ def generate_stl():
         session_id = session.get("session_id")
 
         # Obtener parámetros
-        if request.method == 'POST':
-            data = request.get_json() or {}
+        if request.method == 'POST' and request.is_json:
+            data = request.get_json(silent=True) or {}
         else:
             data = request.args.to_dict()
 
         naca_resolution = safe_int(data.get('naca_resolution', 80), 80)
         stl_format = data.get('format', 'binary')
-        filename = data.get('filename', f'wing_{session_id}.stl')
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(str(data.get('filename', f'wing_{session_id}.stl'))) or 'wing.stl'
 
         # Validar parámetros
         if not (30 <= naca_resolution <= 200):
@@ -840,23 +898,29 @@ def generate_stl():
                 "message": "format must be 'ascii' or 'binary'"
             }), 400
 
-        # Obtener objeto VLM de la sesión
-        with vlm_sessions_lock:
-            vlm = vlm_sessions.get(session_id)
+        # Prefer the plane currently defined in the form; fall back to the session VLM
+        plane = None
+        if request.method == 'POST' and request.form.getlist("chord_root[]"):
+            plane = _parse_wing_form(request.form)
+        else:
+            with vlm_sessions_lock:
+                vlm = vlm_sessions.get(session_id)
+            if vlm:
+                plane = vlm.export_configuration(include_flight=False)
 
-        if not vlm:
+        if not plane or not plane.get("wing_sections"):
             return jsonify({
                 "status": "error", 
-                "message": "VLM not initialized. Please design a wing first."
+                "message": "No plane defined. Please design a wing first."
             }), 400
 
         # Verificar que existe la función de conversión a STL
         try:
-            from lib.wing_to_stl_improved import wing_to_stl_with_naca_profile
+            from lib.wing_to_stl import wing_to_stl_with_naca_config
         except ImportError:
             return jsonify({
                 "status": "error",
-                "message": "STL generation module not found. Please ensure 'wing_to_stl_improved' is available."
+                "message": "STL generation module not found. Please ensure 'wing_to_stl' is available."
             }), 500
 
         # Generar STL con perfil NACA
@@ -870,8 +934,8 @@ def generate_stl():
 
         # Ejecutar generación en thread pool para no bloquear
         def generate():
-            wing_mesh = wing_to_stl_with_naca_profile(
-                vlm,
+            wing_mesh = wing_to_stl_with_naca_config(
+                plane,
                 output_filename=str(output_path),
                 naca_resolution=naca_resolution,
                 format=stl_format
@@ -897,6 +961,8 @@ def generate_stl():
             download_name=filename
         )
 
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     except ImportError as e:
         logger.exception("Import error in /generate_stl")
         return jsonify({
@@ -1153,6 +1219,7 @@ def validate_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/airfoil-configs', methods=['GET'])
+@session_required
 def list_airfoil_configs():
     """Lista todas las configuraciones de airfoil guardadas"""
     try:
@@ -1172,6 +1239,7 @@ def list_airfoil_configs():
         }), 500
 
 @app.route('/api/saveairfoilconfig', methods=['POST'])
+@session_required
 def save_airfoil_config():
     """Guarda una configuración de airfoil"""
     try:
@@ -1223,7 +1291,8 @@ def save_airfoil_config():
                 "status": "success",
                 "message": f"Airfoil configuration '{filename}' saved successfully!",
                 "filename": result['filename'],
-                "backup_created": result.get('backup_created', False)
+                "backup_created": result.get('backup_created', False),
+                "replaced_existing": result.get('replaced_existing', False)
             }), 200
         else:
             return jsonify(result), 500
@@ -1235,6 +1304,7 @@ def save_airfoil_config():
         }), 500
 
 @app.route('/api/loadairfoilconfig', methods=['POST'])
+@session_required
 def load_airfoil_config():
     """Carga una configuración de airfoil"""
     try:

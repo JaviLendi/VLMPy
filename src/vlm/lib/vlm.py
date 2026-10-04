@@ -384,6 +384,8 @@ class VLM:
         self.calculate_discretization()
         solution_key = self._solution_cache_key()
         if solution_key == self._solution_state_key:
+            influence_key = (self._panel_cache_token, float(self.alpha), float(self.beta))
+            self.timings['influence_cache_hit'] = influence_key in self._influence_cache
             self.timings['solution_cache_hit'] = True
             return
 
@@ -434,13 +436,17 @@ class VLM:
 
         original_alpha = self.alpha
 
-        for alpha in angles_rad:
-            self.alpha = alpha
-            self.calculate_geometry()
-            self.calculate_discretization()
+        try:
+            for alpha in angles_rad:
+                self.alpha = alpha
+                self.calculate_wing_lift()
+                cl_values.append(self.CL)
+                cd_values.append(self.CD)
+        finally:
+            self.alpha = original_alpha
+            self._geometry_cache_key = None
+            self._discretization_cache_key = None
             self.calculate_wing_lift()
-            cl_values.append(self.CL)
-            cd_values.append(self.CD)
 
         sweep_results = {
             'angles_deg': angles_deg,
@@ -448,17 +454,10 @@ class VLM:
             'CD': cd_values
         }
 
-        self.alpha = original_alpha
-        self._geometry_cache_key = None
-        self._discretization_cache_key = None
-        self.calculate_geometry()
-        self.calculate_discretization()
-        self.calculate_wing_lift()
         self.results = sweep_results
+        return sweep_results
 
     def run_vlm(self):
-        self.calculate_geometry()
-        self.calculate_discretization()
         self.calculate_wing_lift()
 
 """ # Calculate the aerodynamic influence coefficient matrix
@@ -598,18 +597,42 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
         -r2_inverse_y[valid_b_k] / denominator_b[valid_b_k] * factor_b[valid_b_k]
     )
 
-    normal_y = normal_vector_[:, 1][None, :]
-    normal_z = normal_vector_[:, 2][None, :]
-    v_ab_normal = v_ab[:, :, 1] * normal_y + v_ab[:, :, 2] * normal_z
+    normal_x = normal_vector_[:, 0][:, None]
+    normal_y = normal_vector_[:, 1][:, None]
+    normal_z = normal_vector_[:, 2][:, None]
+    v_ab_normal = v_ab[:, :, 0] * normal_x + v_ab[:, :, 1] * normal_y + v_ab[:, :, 2] * normal_z
     v_inf_normal = (
-        v_a_inf[:, :, 1] * normal_y
+        v_a_inf[:, :, 0] * normal_x
+        + v_a_inf[:, :, 1] * normal_y
         + v_a_inf[:, :, 2] * normal_z
+        + v_b_inf[:, :, 0] * normal_x
         + v_b_inf[:, :, 1] * normal_y
         + v_b_inf[:, :, 2] * normal_z
     )
 
     P_ij_resis = v_inf_normal
     P_ij = v_ab_normal + P_ij_resis
+
+    print("---- VLM diagnostics ----")
+    print(
+        "U_inf =",
+        np.linalg.norm(u)
+    )
+
+    print(
+        "normal norm:",
+        np.min(np.linalg.norm(normal_vector_, axis=1)),
+        np.mean(np.linalg.norm(normal_vector_, axis=1)),
+        np.max(np.linalg.norm(normal_vector_, axis=1))
+    )
+
+    print(
+        "w:",
+        np.mean(np.abs(w_i)),
+        np.max(np.abs(w_i)),
+        np.max(np.abs(w_i)) / np.linalg.norm(u_)
+    )
+
     return P_ij, P_ij_resis, w_i, panel_length, u_
 
 def calculate_w_i(panel_data, u, dz_c, alpha, beta):
@@ -627,14 +650,12 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
         normal = panel_i[4][0]
         normal_ = np.array([normal[1], normal[0], normal[2]])
 
-        # Panel length calculation
+        # Panel length calculation (spanwise width, used for Kutta-Joukowski lift/drag integration)
         panel_length[i] = np.linalg.norm(np.array(panel_i[1][0]) - np.array(panel_i[1][3]))
 
-        # Curvature calculation
-        if panel_length[i] != 0:  # Cero division guard
-            deltaZ[i] = dz_c[i] / panel_length[i]
-        else:
-            deltaZ[i] = 0
+        # dz_c already holds the local camber slope (dz/dx); it must NOT be divided by the
+        # spanwise panel_length, otherwise the slope diverges as the spanwise mesh is refined.
+        deltaZ[i] = dz_c[i]
         deltaP = np.atan(deltaZ[i])
 
         cos_deltaP = np.cos(deltaP)
@@ -644,6 +665,10 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
             [0, 1, 0],
             [sin_deltaP, 0, cos_deltaP]])
         normal_vector_[i] = np.dot(normal_, A)
+        norm = np.linalg.norm(normal_vector_[i])
+        if norm < 1e-12:
+            raise ValueError(f"Normal nula en panel {i}")
+        normal_vector_[i] /= norm
         normal_vector = normal_vector_[i]
 
         Talpha = np.array([
@@ -651,8 +676,8 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
             [0, 1, 0],
             [np.sin(alpha), 0, np.cos(alpha)]])
         Tbeta = np.array([
-            [np.cos(beta), np.sin(beta), 0],
-            [-np.sin(beta), np.cos(beta), 0],
+            [np.cos(beta), -np.sin(beta), 0],
+            [np.sin(beta), np.cos(beta), 0],
             [0, 0, 1]])
         u_ = np.dot(Tbeta, np.dot(Talpha, np.array([0, 1, 0]))) * u
         w_i[i] = -np.dot(np.array([u_[1], u_[0], u_[2]]), normal_vector)
@@ -809,6 +834,20 @@ def plane(self):
 
     # 16. Return all results
     self.timings['postprocess'] = time.perf_counter() - postprocess_start
+
+    print(
+            "gamma:",
+            np.mean(np.abs(gammas)),
+            np.max(np.abs(gammas))
+        )
+    
+    print(
+        "CL:",
+        CL_total
+    )
+
+    print("n =", self.n, "m =", self.m)
+    
 
     return (
         w_i,

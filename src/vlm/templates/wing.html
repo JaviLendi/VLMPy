@@ -1,15 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container">
-    <div class="form-section">
+    <div class="form-section wing-form-section">
         <div class="form-group-header">
-            <h2 style="margin: 0;">Plane Definition</h2>
+            <div>
+                <span class="results-eyebrow">Geometry input</span>
+                <h2 style="margin: 0;">Plane Definition</h2>
+                <p class="wing-panel-subtitle">Define the aircraft, control surfaces and analysis resolution.</p>
+            </div>
             <button type="button" class="info-button" onclick="openInfo('plane-definition-info-popup')" aria-label="Show info about plane definition">
             <span class="material-icons" aria-hidden="true">info</span>
             </button>
         </div>
-        <div id="plane-definition-info-popup" class="info-popup" tabindex="-1">
-            <h4>Plane Definition Info</h4>
+        <div id="plane-definition-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+            <h4><span class="material-icons" aria-hidden="true">info</span>Plane Definition Info</h4>
+            <div class="info-body">
             <ul>
             <li><b>Flight Condition:</b>
                 <ul>
@@ -62,26 +67,29 @@
                 </ul>
             </li>
             </ul>
-            <button type="button" onclick="document.getElementById('plane-definition-info-popup').style.display='none'">Close</button>
+            </div>
+            <button type="button" class="info-footer" onclick="closeInfo('plane-definition-info-popup')">Close</button>
         </div>
         <form id="wing-form" aria-label="Plane Definition Form">
             <!-- Flight Condition -->
             <section class="form-group">
                 <div class="form-group-header">
                     <h3 style="margin: 0;">Flight Condition</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('flight-condition-info-popup').style.display='block'" aria-label="Show info about flight condition">
+                    <button type="button" class="info-button" onclick="openInfo('flight-condition-info-popup')" aria-label="Show info about flight condition">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="flight-condition-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Flight Condition Info</h4>
+                <div id="flight-condition-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Flight Condition Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>Flight Velocity:</b> Speed of the aircraft in meters per second (m/s).</li>
                         <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³).</li>
                         <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming airflow (degrees).</li>
                         <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('flight-condition-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('flight-condition-info-popup')">Close</button>
                 </div>
                 {% for field in [
                     {"label": "Flight Velocity (m/s):", "id": "flight-velocity", "name": "u", "value": default_parameters.u, "step": "any"},
@@ -100,12 +108,13 @@
             <section class="form-group">
                 <div class="form-group-header">
                     <h3 style="margin: 0;">Wing Geometry</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('wing-geometry-info-popup').style.display='block'" aria-label="Show info about wing geometry">
+                    <button type="button" class="info-button" onclick="openInfo('wing-geometry-info-popup')" aria-label="Show info about wing geometry">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="wing-geometry-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Wing Geometry Info</h4>
+                <div id="wing-geometry-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Wing Geometry Info</h4>
+                    <div class="info-body">
                     <p> Use the "Add Section" button to create multiple wing sections. For each section, define:</p>
                     <ul>
                         <li><b>Chord Root/Tip:</b> Length of the wing section at root/tip.</li>
@@ -118,7 +127,8 @@
                     <a> You can define a flap or aileron for each section by specifying its start and end positions along the chord, hinge chord fraction, deflection angle, and type (simple or plain).</a>
                     <p> Each section is defined relative to the previous one, allowing for complex wing shapes.</p>
                     <p> You can remove the last section using the "Remove Section" button.</p>
-                    <button type="button" onclick="document.getElementById('wing-geometry-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('wing-geometry-info-popup')">Close</button>
                 </div>
                 <div id="sections" aria-live="polite"></div>
                 <div class="button-group">
@@ -131,12 +141,13 @@
             <section class="stabilizer-section">
                 <div class="form-group-header">
                     <h3 style="margin: 0;">Horizontal Stabilizer</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='block'" aria-label="Show info about horizontal stabilizer">
+                    <button type="button" class="info-button" onclick="openInfo('horizontal-stabilizer-info-popup')" aria-label="Show info about horizontal stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="horizontal-stabilizer-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Horizontal Stabilizer Info</h4>
+                <div id="horizontal-stabilizer-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Horizontal Stabilizer Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>X Translate:</b> Position along the fuselage (meters).</li>
                         <li><b>Z Translate:</b> Vertical position (meters).</li>
@@ -147,10 +158,11 @@
                         <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
                         <li><b>Alpha:</b> Angle of attack (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('horizontal-stabilizer-info-popup')">Close</button>
                 </div>
                 <input type="hidden" name="horizontal_toggled[]" value="0">
-                <button type="button" class="toggle-button" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
+                <button type="button" class="toggle-buttons" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
                     Toggle Horizontal Stabilizer
                 </button>
                 <div id="horizontal-stabilizer-section" class="form-group" style="display: none;">
@@ -178,12 +190,13 @@
             <section class="stabilizer-section">
                 <div class="form-group-header">
                     <h3 style="margin: 0;">Vertical Stabilizer</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='block'" aria-label="Show info about vertical stabilizer">
+                    <button type="button" class="info-button" onclick="openInfo('vertical-stabilizer-info-popup')" aria-label="Show info about vertical stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="vertical-stabilizer-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Vertical Stabilizer Info</h4>
+                <div id="vertical-stabilizer-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Vertical Stabilizer Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>X Translate:</b> Position along the fuselage (meters).</li>
                         <li><b>Z Translate:</b> Vertical position (meters).</li>
@@ -194,10 +207,11 @@
                         <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
                         <li><b>Alpha:</b> Angle of attack (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('vertical-stabilizer-info-popup')">Close</button>
                 </div>
                 <input type="hidden" name="vertical_toggled[]" value="0">
-                <button type="button" class="toggle-button" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
+                <button type="button" class="toggle-buttons" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
                     Toggle Vertical Stabilizer
                 </button>
                 <div id="vertical-stabilizer-section" class="form-group" style="display: none;">
@@ -224,17 +238,19 @@
             <section class="form-group">
                 <div class="form-group-header">
                     <h3 style="margin: 0;">Discretization</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('discretization-info-popup').style.display='block'" aria-label="Show info about discretization">
+                    <button type="button" class="info-button" onclick="openInfo('discretization-info-popup')" aria-label="Show info about discretization">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="discretization-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Discretization Info</h4>
+                <div id="discretization-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Discretization Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>Panels Along Span:</b> Number of panels dividing the wing span.</li>
                         <li><b>Panels Along Chord:</b> Number of panels dividing the wing chord.</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('discretization-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('discretization-info-popup')">Close</button>
                 </div>
                 <div class="input-group">
                     <label for="panels-span">Panels Along Span:</label>
@@ -246,23 +262,17 @@
                 </div>
             </section>
 
+        </form>
+
             <!-- Form Actions -->
-            <div class="buttons">
-                <button type="button" class="action-button" id="calculate-button" onclick="Calculate()">Calculate</button>
-                <button type="button" class="action-button" id="view-planform-button" onclick="plotData('/plot/geometry_2d', 'Wing_Geometry_2d')">Planform</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/discretization2D', 'Wing_Discretization2d')">Discretization 2D</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/geometry', 'Wing_Geometry')">Geometry 3D</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/discretization3D', 'Wing_Discretization3d')">Discretization 3D</button>
-                <button type="button" class="action-button" onclick="generate_stl()">Generate STL</button>
-                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
-            </div>
-            <h3>Manage Plane Configuration</h3>
-            <div class="buttons">
+            <div class="buttons action-row wing-form-actions">
+                <button type="button" class="action-button wing-calculate-button" id="calculate-button" onclick="Calculate()">Calculate</button>
+                <button type="button" class="action-button wing-load-button" onclick="loadPlaneAdvanced()">Load</button>
                 <button type="button" class="action-button" onclick="savePlaneAdvanced()">Save</button>
-                <button type="button" class="action-button" onclick="loadPlaneAdvanced()">Load</button>
+                <button type="button" class="action-button" onclick="generate_stl()">Generate STL</button>
+                <button type="button" class="action-button" onclick="resetAllPlane()">Reset All</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
-        </form>
     </div>
     <div class="form-section wing-preview-section" id="wing-preview-panel">
         <div class="form-group-header">
@@ -294,6 +304,17 @@
         </div>
     </div>
     <div id="plot-area" aria-live="polite" hidden></div>
+</div>
+
+<div id="reset-confirmation-modal" class="reset-confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="reset-confirmation-title" hidden>
+    <div class="reset-confirmation-card">
+        <h3 id="reset-confirmation-title">Reset plane?</h3>
+        <p>This will delete the current configuration and results, then restore the default plane.</p>
+        <div class="reset-confirmation-actions">
+            <button type="button" class="btn btn-secondary" onclick="resolveResetConfirmation(false)">Cancel</button>
+            <button type="button" class="btn btn-danger" onclick="resolveResetConfirmation(true)">Reset all</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -363,12 +384,16 @@ function wingPreviewGeometry() {
     let span = 0;
     let lead = 0;
     let height = 0;
+    let cumulativeTwist = 0; // radians, starts at root = 0
     sections.forEach(section => {
         const chordRoot = wingPreviewNumber(section.querySelector('[name="chord_root[]"]')?.value, 1);
         const chordTip = wingPreviewNumber(section.querySelector('[name="chord_tip[]"]')?.value, chordRoot);
         const spanFraction = Math.max(0, wingPreviewNumber(section.querySelector('[name="span_fraction[]"]')?.value));
         const sweep = wingPreviewNumber(section.querySelector('[name="sweep[]"]')?.value) * Math.PI / 180;
         const dihedral = wingPreviewNumber(section.querySelector('[name="dihedral[]"]')?.value) * Math.PI / 180;
+        const localTwist = wingPreviewNumber(section.querySelector('[name="twist[]"]')?.value) * Math.PI / 180;
+        const rootTwist = cumulativeTwist;
+        const tipTwist = cumulativeTwist + (localTwist || 0);
         const nacaRoot = section.querySelector('[name="naca_root[]"]')?.value || '0012';
         const nacaTip = section.querySelector('[name="naca_tip[]"]')?.value || nacaRoot;
         const flapEnabled = section.querySelector('[name="flap_toggled[]"]')?.value === '1';
@@ -378,10 +403,11 @@ function wingPreviewGeometry() {
         const nextSpan = span + spanFraction / 2;
         const nextHeight = height - Math.sin(dihedral) * (spanFraction / 2);
         const nextLead = lead + Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
-        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
+        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot, twist: rootTwist}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip, twist: tipTwist}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
         span = nextSpan;
         lead = nextLead;
         height = nextHeight;
+        cumulativeTwist = tipTwist;
     });
     return right;
 }
@@ -424,13 +450,26 @@ function renderWingPreview() {
                 for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
                     const c0 = chordIndex / chordPanels;
                     const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
-                    const atSpan = (spanFraction, chordFraction) => [
-                        section.root.x + (section.tip.x - section.root.x) * spanFraction
-                            + (section.root.c + (section.tip.c - section.root.c) * spanFraction) * chordFraction,
-                        section.root.y + (section.tip.y - section.root.y) * spanFraction,
-                        section.root.z + (section.tip.z - section.root.z) * spanFraction
-                    ];
-                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    const atSpan = (spanFraction, chordFraction, twistAngle = null) => {
+                        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+                        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+                        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+                        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+                        const x = xLead + chord * chordFraction;
+                        // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
+                        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+                        if (!twist) return [x, y, zBase];
+                        const qx = xLead + chord * 0.25;
+                        const qz = zBase; // pivot about quarter-chord at local reference height
+                        const ct = Math.cos(twist), st = Math.sin(twist);
+                        const xr = qx + ct * (x - qx) - st * (zBase - qz);
+                        const zr = qz + st * (x - qx) + ct * (zBase - qz);
+                        return [xr, y, zr];
+                    };
+                    // compute panel mid-span twist (radians) so the whole panel uses same twist
+                    const midFraction = (f0 + f1) / 2;
+                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
+                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
                     shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
                 }
             }
@@ -447,7 +486,7 @@ function renderWingPreview() {
                 for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
                     const c0 = chordIndex / chordPanels;
                     const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
-                    const atSpan = (spanFraction, chordFraction) => {
+                    const atSpan = (spanFraction, chordFraction, twistAngle = null) => {
                         const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
                         const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
                         const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
@@ -459,21 +498,43 @@ function renderWingPreview() {
                             chordFraction,
                             upper
                         );
-                        return [xLead + chord * chordFraction, y, zBase - chord * profileHeight];
+                        const x = xLead + chord * chordFraction;
+                        const z = zBase - chord * profileHeight;
+                        // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
+                        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+                        if (!twist) return [x, y, z];
+                        const qx = xLead + chord * 0.25;
+                        const qz = zBase; // pivot at quarter-chord reference height
+                        const ct = Math.cos(twist), st = Math.sin(twist);
+                        const xr = qx + ct * (x - qx) - st * (z - qz);
+                        const zr = qz + st * (x - qx) + ct * (z - qz);
+                        return [xr, y, zr];
                     };
-                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    // compute panel mid-span twist (radians) so the whole panel uses same twist
+                    const midFraction = (f0 + f1) / 2;
+                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
+                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
                     shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
                 }
             });
         }
     });
-    const detailPoint = (section, spanFraction, chordFraction, upper = true) => {
+    const detailPoint = (section, spanFraction, chordFraction, upper = true, twistAngle = null) => {
         const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
         const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
         const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
         const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
         const height = wingInterpolatedNacaHeight(section.root.naca, section.tip.naca, spanFraction, chordFraction, upper);
-        return [xLead + chord * chordFraction, y, zBase - chord * height];
+        const x = xLead + chord * chordFraction;
+        const z = zBase - chord * height;
+        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+        if (!twist) return [x, y, z];
+        const qx = xLead + chord * 0.25;
+        const qz = zBase;
+        const ct = Math.cos(twist), st = Math.sin(twist);
+        const xr = qx + ct * (x - qx) - st * (z - qz);
+        const zr = qz + st * (x - qx) + ct * (z - qz);
+        return [xr, y, zr];
     };
     const addAirfoilOutline = (section, spanFraction, type) => {
         const points = [];
@@ -762,57 +823,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-function plotData(endpoint, filename) {
-    const form = document.getElementById("wing-form");
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        return;
-    }
-    const waitForCalculation = window.vlmCalculationPromise || Promise.resolve();
-    document.getElementById('wing-preview-panel')?.setAttribute('hidden', '');
-    document.getElementById('plot-area')?.removeAttribute('hidden');
-    waitForCalculation.then(() => fetch(endpoint, {
-        method: "POST",
-        body: new FormData(form)
-    }))
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.message || `HTTP ${response.status}`);
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.plot) {
-            // Remove the specific message from plot-area if present
-            const plotArea = document.getElementById('plot-area');
-            const unwantedMsg = plotArea.querySelector('p[style*="New plane configuration loaded"]');
-            if (unwantedMsg) {
-                unwantedMsg.remove();
-            }
-            const plotData = typeof data.plot === 'string'
-                ? JSON.parse(data.plot)
-                : data.plot;
-            if (!plotData || !Array.isArray(plotData.data) || !plotData.layout) {
-                throw new Error('Invalid plot response');
-            }
-            plotData.layout.autosize = true;
-            plotData.layout.uirevision = filename || endpoint;
-            const plotPromise = plotArea.data
-                ? Plotly.react(plotArea, plotData.data, plotData.layout, {responsive: true})
-                : Plotly.newPlot(plotArea, plotData.data, plotData.layout, {responsive: true});
-            plotPromise.then(() => Plotly.Plots.resize(plotArea));
-        } else {
-            throw new Error(data.message || 'No plot data received');
-        }
-    })
-    .catch(error => {
-        console.error("Error generating plot:", error);
-        window.messageCenter?.error(`Error generating plot: ${error.message}`);
-    });
-}
-
 // Read file as text
 const readFileAsText = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -855,6 +865,33 @@ function loadData(input) {
     reader.readAsText(file);
 }
 
+let resetConfirmationResolver = null;
+
+function requestResetConfirmation() {
+    const modal = document.getElementById('reset-confirmation-modal');
+    if (!modal) return Promise.resolve(false);
+    modal.hidden = false;
+    modal.querySelector('button')?.focus();
+    return new Promise(resolve => {
+        resetConfirmationResolver = resolve;
+    });
+}
+
+function resolveResetConfirmation(confirmed) {
+    const modal = document.getElementById('reset-confirmation-modal');
+    if (modal) modal.hidden = true;
+    if (resetConfirmationResolver) {
+        resetConfirmationResolver(confirmed);
+        resetConfirmationResolver = null;
+    }
+}
+
+async function resetAllPlane() {
+    const confirmed = await requestResetConfirmation();
+    if (!confirmed) return;
+    window.location.reload();
+}
+
 function erasePlot() {
     Plotly.purge("plot-area");
     const plotArea = document.getElementById('plot-area');
@@ -877,22 +914,24 @@ function createSavedWingSection(sectionNumber) {
     section.style.opacity = '1';
     section.innerHTML = `
         <h4>Section ${sectionNumber}</h4>
-        <label>Chord Root (m):</label>
-        <input type="number" name="chord_root[]" step="0.1" required>
-        <label>Chord Tip (m):</label>
-        <input type="number" name="chord_tip[]" step="0.1" required>
-        <label>Span Fraction (m):</label>
-        <input type="number" name="span_fraction[]" step="any" required>
-        <label>Sweep Angle (deg):</label>
-        <input type="number" name="sweep[]" step="any" required>
-        <label>Dihedral Angle (deg):</label>
-        <input type="number" name="dihedral[]" step="any" required>
-        <label>NACA Root:</label>
-        <input type="text" name="naca_root[]" required>
-        <label>NACA Tip:</label>
-        <input type="text" name="naca_tip[]" required>
+        <label for="chord-root-${sectionNumber}">Chord Root (m):</label>
+        <input id="chord-root-${sectionNumber}" type="number" name="chord_root[]" step="0.1" required>
+        <label for="chord-tip-${sectionNumber}">Chord Tip (m):</label>
+        <input id="chord-tip-${sectionNumber}" type="number" name="chord_tip[]" step="0.1" required>
+        <label for="span-fraction-${sectionNumber}">Span Fraction (m):</label>
+        <input id="span-fraction-${sectionNumber}" type="number" name="span_fraction[]" step="any" required>
+        <label for="sweep-${sectionNumber}">Sweep Angle (deg):</label>
+        <input id="sweep-${sectionNumber}" type="number" name="sweep[]" step="any" required>
+        <label for="dihedral-${sectionNumber}">Dihedral Angle (deg):</label>
+        <input id="dihedral-${sectionNumber}" type="number" name="dihedral[]" step="any" required>
+        <label for="twist-${sectionNumber}">Twist (deg):</label>
+        <input id="twist-${sectionNumber}" type="number" name="twist[]" step="any" value="0">
+        <label for="naca-root-${sectionNumber}">NACA Root:</label>
+        <input id="naca-root-${sectionNumber}" type="text" name="naca_root[]" required>
+        <label for="naca-tip-${sectionNumber}">NACA Tip:</label>
+        <input id="naca-tip-${sectionNumber}" type="text" name="naca_tip[]" required>
         <input type="hidden" name="flap_toggled[]" value="0">
-        <button type="button" class="toggle-button" aria-label="Toggle Aileron">Toggle Aileron</button>
+        <button type="button" class="toggle-buttons" aria-label="Toggle Aileron">Toggle Aileron</button>
         <div class="flap-params" style="display: none;">
             <input type="number" name="flap_start[]" step="any">
             <input type="number" name="flap_end[]" step="any">
@@ -1030,6 +1069,11 @@ function populateSectionsDataWithAngles(wingSections) {
             if (input && value != null) input.value = value;
         });
 
+        // Optional twist value (degrees)
+        const twistVal = section.twist ?? section.twist_deg ?? section.twistdeg ?? section.twist_degrees;
+        const twistInput = sectionDiv.querySelector('input[name="twist[]"]');
+        if (twistInput && twistVal != null) twistInput.value = convertAngleIfNeeded(twistVal, true);
+
         // Flap
         const flapStart = section.flap_start ?? section.flapstart;
         if (flapStart != null) {
@@ -1100,38 +1144,41 @@ document.getElementById('wing-form').addEventListener('keydown', function(event)
     if (event.key === 'Enter') {
         event.preventDefault();
         document.getElementById('calculate-button')?.click();
-        document.getElementById('view-planform-button')?.click();
     }
 });
 
 
-// Close any info popup when clicking outside
-document.addEventListener('mousedown', function(event) {
-    document.querySelectorAll('.info-popup').forEach(function(popup) {
-        if (popup.style.display === 'block' && !popup.contains(event.target)) {
-            popup.style.display = 'none';
-        }
-    });
-});
-
-// Close any info popup when pressing Escape
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape') {
+    // Close any info popup when clicking outside (use aria-hidden state)
+    document.addEventListener('mousedown', function(event) {
         document.querySelectorAll('.info-popup').forEach(function(popup) {
-            if (popup.style.display === 'block') {
-                popup.style.display = 'none';
+            if (popup.getAttribute('aria-hidden') === 'false' && !popup.contains(event.target)) {
+                closeInfo(popup.id);
             }
         });
-    }
-});
+    });
+
+    // Close any info popup when pressing Escape (use aria-hidden state)
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            document.querySelectorAll('.info-popup').forEach(function(popup) {
+                if (popup.getAttribute('aria-hidden') === 'false') {
+                    closeInfo(popup.id);
+                }
+            });
+        }
+    });
 
 /* abrir popup por id */
+let activeInfoTrigger = null;
+
 function openInfo(id) {
-  const popup = document.getElementById(id);
-  // show
-  popup.style.display = 'block';
-  popup.setAttribute('aria-hidden', 'false');
-  popup.focus?.();
+    const popup = document.getElementById(id);
+    if (!popup) return;
+    activeInfoTrigger = document.activeElement;
+    // Show popup as flex container so CSS layout (.info-body/.info-footer) applies
+    popup.style.display = 'flex';
+    popup.setAttribute('aria-hidden', 'false');
+    popup.focus?.();
 }
 
 /* cerrar popup por id (opcional) */
@@ -1140,6 +1187,8 @@ function closeInfo(id) {
   if (!popup) return;
   popup.style.display = 'none';
   popup.setAttribute('aria-hidden', 'true');
+    activeInfoTrigger?.focus?.();
+    activeInfoTrigger = null;
   const backdrop = document.querySelector('.info-backdrop');
   if (backdrop) backdrop.style.display = 'none';
 }
@@ -1150,6 +1199,8 @@ function closeAllInfo() {
     p.style.display = 'none';
     p.setAttribute('aria-hidden', 'true');
   });
+    activeInfoTrigger?.focus?.();
+    activeInfoTrigger = null;
   const backdrop = document.querySelector('.info-backdrop');
   if (backdrop) backdrop.style.display = 'none';
 }
@@ -1237,8 +1288,7 @@ function generate_stl() {
     }
     fetch('/generate_stl', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})  // Send empty body for defaults, or add parameters if needed
+        body: new URLSearchParams(new FormData(form))
     })
     .then(response => {
         if (!response.ok) {

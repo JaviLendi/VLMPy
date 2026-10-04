@@ -33,7 +33,7 @@ class MessageCenter {
 
     clear() {
         this.#activeMessages.clear();
-        this.#container.innerHTML = '';
+        this.#container.replaceChildren();
     }
 
     showMessage(text, type = 'info', timeout) {
@@ -79,15 +79,22 @@ class MessageCenter {
             message.setAttribute('aria-live', 'polite');
         }
 
-        // Estructura (coincide con tu CSS)
-        message.innerHTML = `
-            <div class="message-content">
-                <span class="message-text">${text}</span>
-                <button class="message-close" data-dismiss aria-label="Cerrar mensaje" type="button">
-                    <i class="fas fa-times" aria-hidden="true"></i>
-                </button>
-            </div>
-        `;
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        const textElement = document.createElement('span');
+        textElement.className = 'message-text';
+        textElement.textContent = String(text ?? '');
+        const closeButton = document.createElement('button');
+        closeButton.className = 'message-close';
+        closeButton.dataset.dismiss = '';
+        closeButton.setAttribute('aria-label', 'Cerrar mensaje');
+        closeButton.type = 'button';
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-times';
+        icon.setAttribute('aria-hidden', 'true');
+        closeButton.appendChild(icon);
+        content.append(textElement, closeButton);
+        message.appendChild(content);
 
         // Animación de entrada
         requestAnimationFrame(() => message.classList.add('message-show'));

@@ -189,6 +189,7 @@ class GeometryConfigManager:
             "message": "",
             "filename": "",
             "backup_created": False,
+            "replaced_existing": False,
             "checksum": ""
         }
         
@@ -212,6 +213,7 @@ class GeometryConfigManager:
             
             # ALWAYS create backup if the file exists
             if file_path.exists():
+                result["replaced_existing"] = True
                 backup_path = self.create_backup(filename)
                 result["backup_created"] = backup_path is not None
             
@@ -325,6 +327,17 @@ class GeometryConfigManager:
                     "has_vertical_stabilizer": "vertical_stabilizer" in config or "verticalstabilizer" in config,
                     "wing_sections_count": len(config.get("wing_sections", config.get("wingsections", [])))
                 }
+                if config.get("type") == "airfoil":
+                    config_info.update({
+                        "type": "airfoil",
+                        "naca": config.get("naca"),
+                        "u": config.get("u"),
+                        "alpha": config.get("alpha"),
+                        "chord": config.get("chord"),
+                        "points": config.get("n")
+                    })
+                else:
+                    config_info["type"] = "plane"
                 
                 configs.append(config_info)
                 

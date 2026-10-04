@@ -9,6 +9,188 @@ import plotly.graph_objects as go
 from lib.naca import naca_airfoil_dzdx
 from stl import mesh, Mode
 
+
+def _calculate_section_geometry(sections, alpha, is_symmetric, x_translate, z_translate=0):
+    """Module-level helper mirroring the nested calculate_section_geometry implementation.
+    Kept as a helper to allow reuse and simpler testing/refactoring.
+    """
+    # Reuse the nested implementation by importing and executing it dynamically
+    # to avoid duplicating logic. This helper exists as a stable API point for
+    # refactors; callers may replace the nested version as needed.
+    # For now, call the nested implementation by constructing an equivalent
+    # function body using the original code path. (Minimal wrapper to preserve behavior.)
+    # NOTE: The nested function currently lives inside calculate_geometry; to keep
+    # behavior identical, we simply reimplement the same algorithm here.
+    x_leading_edge = []
+    y_leading_edge = []
+    z_leading_edge = []
+    x_trailing_edge = []
+    y_trailing_edge = []
+    z_trailing_edge = []
+    x_quarter_chord = []
+    y_quarter_chord = []
+    z_quarter_chord = []
+    twist_list = []
+
+    y_current = 0
+    z_current = 0
+    x_lead_current = 0
+    x_trail_current = sections[0]['chord_root']
+    x_quarter_current = sections[0]['chord_tip'] / 4
+
+    for i, sec in enumerate(sections):
+        _validate_section(sec, i)
+        span = sec['span_fraction']
+        chord_tip = sec['chord_tip']
+        sweep = sec['sweep']
+        dihedral = sec['dihedral']
+
+        span2 = span / 2 if is_symmetric else span
+
+        y_next = y_current + (span2) * np.cos(dihedral)
+        z_next = z_current + (span2) * np.sin(dihedral)
+
+        if is_symmetric:
+            x_lead_next = x_lead_current + (np.tan(sweep) * (span2)) * np.cos(dihedral)
+        else:
+            x_lead_next = x_lead_current + (np.tan(sweep) * (span2))
+
+        x_trail_next = x_lead_next + chord_tip
+        x_quarter_next = (x_trail_next - x_lead_next) / 4 + x_lead_next
+
+        x_leading_edge.append(np.array([x_lead_current, x_lead_next]))
+        y_leading_edge.append(np.array([y_current, y_next]))
+        z_leading_edge.append(np.array([z_current, z_next]))
+
+        x_trailing_edge.append(np.array([x_trail_current, x_trail_next]))
+        y_trailing_edge.append(np.array([y_current, y_next]))
+        z_trailing_edge.append(np.array([z_current, z_next]))
+
+        x_quarter_chord.append(np.array([x_quarter_current, x_quarter_next]))
+        y_quarter_chord.append(np.array([y_current, y_next]))
+        z_quarter_chord.append(np.array([z_current, z_next]))
+        twist_list.append(np.array([sec.get('twist', 0.0), sec.get('twist', 0.0)]))
+
+        y_current = y_next
+        z_current = z_next
+        x_lead_current = x_lead_next
+        x_trail_current = x_trail_next
+        x_quarter_current = x_quarter_next
+
+    x_leading_edge = np.concatenate(x_leading_edge)
+    y_leading_edge = np.concatenate(y_leading_edge)
+    z_leading_edge = np.concatenate(z_leading_edge)
+    x_trailing_edge = np.concatenate(x_trailing_edge)
+    y_trailing_edge = np.concatenate(y_trailing_edge)
+    z_trailing_edge = np.concatenate(z_trailing_edge)
+    x_quarter_chord = np.concatenate(x_quarter_chord)
+    y_quarter_chord = np.concatenate(y_quarter_chord)
+    z_quarter_chord = np.concatenate(z_quarter_chord)
+
+    # Build twist array where twist is accumulated from the root: each section's
+    # provided `twist` is interpreted as the incremental twist to be added at
+    # the tip of that section. This produces a monotonic (cumulative) twist
+    # distribution along the span endpoints.
+    if len(twist_list) > 0:
+        # twist_list currently holds per-segment [root_val, tip_val] pairs (section-local)
+        # we will convert these into cumulative twist values.
+        raw = np.concatenate(twist_list)
+        # raw contains per-segment local twist increments duplicated; we need to
+        # accumulate per section. We'll reconstruct by walking sections.
+        cumulative = []
+        cum = 0.0
+        # twist_list was appended per section as [sec_twist, sec_twist]
+        for sec_twist_pair in twist_list:
+            sec_twist = float(sec_twist_pair[0]) if np.isfinite(sec_twist_pair[0]) else 0.0
+            # root value for this section
+            cumulative.append(cum)
+            # tip value after applying this section's incremental twist
+            cum = cum + sec_twist
+            cumulative.append(cum)
+        twist_array = np.array(cumulative)
+        if twist_array.shape != x_quarter_chord.shape:
+            # fallback: zero twist if shapes mismatch
+            twist_array = np.zeros_like(x_quarter_chord)
+    else:
+        twist_array = np.zeros_like(x_quarter_chord)
+
+    # Do not apply twist rotation here; return raw leading/trailing/quarter
+    # positions and the cumulative `twist_array`. Rotation is applied later
+    # in `interpolate_wing_points` per-sample to avoid double application.
+
+    if alpha != 0:
+        rotation_matrix = np.array([
+            [np.cos(alpha), 0, np.sin(alpha)],
+            [0, 1, 0],
+            [-np.sin(alpha), 0, np.cos(alpha)]
+        ])
+        for coords in [
+            (x_leading_edge, y_leading_edge, z_leading_edge),
+            (x_trailing_edge, y_trailing_edge, z_trailing_edge),
+            (x_quarter_chord, y_quarter_chord, z_quarter_chord)
+        ]:
+            rotated = rotation_matrix @ np.vstack(coords)
+            coords[0][:] = rotated[0]
+            coords[1][:] = rotated[1]
+            coords[2][:] = rotated[2]
+
+    x_leading_edge += x_translate
+    x_trailing_edge += x_translate
+    x_quarter_chord += x_translate
+
+    z_leading_edge += z_translate
+    z_trailing_edge += z_translate
+    z_quarter_chord += z_translate
+
+    if is_symmetric:
+        x_leading_edge = np.concatenate((x_leading_edge[::-1], x_leading_edge))
+        y_leading_edge = np.concatenate((-y_leading_edge[::-1], y_leading_edge))
+        z_leading_edge = np.concatenate((z_leading_edge[::-1], z_leading_edge))
+
+        x_trailing_edge = np.concatenate((x_trailing_edge[::-1], x_trailing_edge))
+        y_trailing_edge = np.concatenate((-y_trailing_edge[::-1], y_trailing_edge))
+        z_trailing_edge = np.concatenate((z_trailing_edge[::-1], z_trailing_edge))
+
+        x_quarter_chord = np.concatenate((x_quarter_chord[::-1], x_quarter_chord))
+        y_quarter_chord = np.concatenate((-y_quarter_chord[::-1], y_quarter_chord))
+        z_quarter_chord = np.concatenate((z_quarter_chord[::-1], z_quarter_chord))
+        # Mirror twist_array for symmetric surfaces so lengths match the quarter-chord arrays
+        twist_array = np.concatenate((twist_array[::-1], twist_array))
+
+    return {
+        'leading_edge': (x_leading_edge, y_leading_edge, z_leading_edge),
+        'trailing_edge': (x_trailing_edge, y_trailing_edge, z_trailing_edge),
+        'quarter_chord': (x_quarter_chord, y_quarter_chord, z_quarter_chord),
+        'twist': twist_array
+    }
+
+
+def _validate_section(sec, idx=0):
+    """Validate a single section dict for required keys and numeric values.
+
+    Raises ValueError with clear message on failure.
+    """
+    if not isinstance(sec, dict):
+        raise ValueError(f"Section at index {idx} must be a dict, got {type(sec)}")
+
+    required_keys = ['span_fraction', 'chord_root', 'chord_tip', 'sweep', 'dihedral']
+    for k in required_keys:
+        if k not in sec:
+            raise ValueError(f"Section {idx} missing required key '{k}'")
+        v = sec[k]
+        if not isinstance(v, (int, float)) or not np.isfinite(v):
+            raise ValueError(f"Section {idx} key '{k}' must be a finite number, got {v}")
+
+    # Additional simple physical checks
+    if sec['span_fraction'] <= 0:
+        raise ValueError(f"Section {idx} 'span_fraction' must be > 0")
+    if sec['chord_root'] <= 0 or sec['chord_tip'] <= 0:
+        raise ValueError(f"Section {idx} chord values must be > 0")
+
+    # Optional numeric keys
+    if 'twist' in sec and (not isinstance(sec['twist'], (int, float)) or not np.isfinite(sec['twist'])):
+        raise ValueError(f"Section {idx} optional key 'twist' must be a finite number if provided")
+
 def calculate_geometry(self):
     """
     Calculates the coordinates of the leading edge, trailing edge, and quarter chord line for a surface.
@@ -22,6 +204,8 @@ def calculate_geometry(self):
     - surface_geometry: Dictionary with coordinates of leading edge, trailing edge, and quarter chord
     """
     plane = self.plane
+    if plane is None or not isinstance(plane, dict):
+        raise ValueError("self.plane must be a non-empty dict with wing/stabilizer definitions")
     def calculate_section_geometry(sections, alpha, is_symmetric, x_translate, z_translate=0):
         print(f"alpha: {alpha}")
         # Initialize coordinate arrays for one side
@@ -34,6 +218,8 @@ def calculate_geometry(self):
         x_quarter_chord = []
         y_quarter_chord = []
         z_quarter_chord = []
+        # Per-segment geometric twist (radians). Each segment contributes two endpoints.
+        twist_list = []
 
         # Starting positions at the root
         y_current = 0
@@ -80,6 +266,10 @@ def calculate_geometry(self):
             x_quarter_chord.append(np.array([x_quarter_current, x_quarter_next]))
             y_quarter_chord.append(np.array([y_current, y_next]))
             z_quarter_chord.append(np.array([z_current, z_next]))
+            # store twist increment for this section (allow 'twist' key in section, default 0)
+            # Note: here `sec.get('twist')` is treated as the incremental twist to
+            # apply across the section (radians). We'll accumulate these below.
+            twist_list.append(np.array([sec.get('twist', 0.0), sec.get('twist', 0.0)]))
 
             # Update current positions
             y_current = y_next
@@ -98,6 +288,26 @@ def calculate_geometry(self):
         x_quarter_chord = np.concatenate(x_quarter_chord)
         y_quarter_chord = np.concatenate(y_quarter_chord)
         z_quarter_chord = np.concatenate(z_quarter_chord)
+
+        # Build cumulative twist distribution (per-endpoint) and rotate
+        if len(twist_list) > 0:
+            # twist_list contains per-section duplicated incremental twist values.
+            cumulative = []
+            cum = 0.0
+            for sec_twist_pair in twist_list:
+                sec_twist = float(sec_twist_pair[0]) if np.isfinite(sec_twist_pair[0]) else 0.0
+                cumulative.append(cum)
+                cum = cum + sec_twist
+                cumulative.append(cum)
+            twist_array = np.array(cumulative)
+            if twist_array.shape != x_quarter_chord.shape:
+                twist_array = np.zeros_like(x_quarter_chord)
+        else:
+            twist_array = np.zeros_like(x_quarter_chord)
+
+        # Do not apply twist rotation here; return raw leading/trailing/quarter
+        # positions and the cumulative `twist_array`. Rotation is applied later
+        # in `interpolate_wing_points` per-sample to avoid double application.
 
         # Apply alpha rotation around y-axis if specified
         if alpha != 0:
@@ -139,28 +349,39 @@ def calculate_geometry(self):
             x_quarter_chord = np.concatenate((x_quarter_chord[::-1], x_quarter_chord))
             y_quarter_chord = np.concatenate((-y_quarter_chord[::-1], y_quarter_chord))
             z_quarter_chord = np.concatenate((z_quarter_chord[::-1], z_quarter_chord))
+            # Mirror twist_array for symmetric surfaces so the return lengths match
+            twist_array = np.concatenate((twist_array[::-1], twist_array))
 
-        # Return geometry as a dictionary
+        # Build twist_array for return (cumulative per-endpoint) to allow downstream
+        # functions to apply a per-panel twist when interpolating finer-resolution
+        # meshes. The twist_array was already calculated above.
         return {
             'leading_edge': (x_leading_edge, y_leading_edge, z_leading_edge),
             'trailing_edge': (x_trailing_edge, y_trailing_edge, z_trailing_edge),
-            'quarter_chord': (x_quarter_chord, y_quarter_chord, z_quarter_chord)
+            'quarter_chord': (x_quarter_chord, y_quarter_chord, z_quarter_chord),
+            'twist': twist_array
         }
 
     wing_geometry = 0
     hs_geometry = 0
     vs_geometry = 0
     if 'wing_sections' in plane:
+        if not isinstance(plane['wing_sections'], list) or len(plane['wing_sections']) == 0:
+            raise ValueError("plane['wing_sections'] must be a non-empty list of section dicts")
         # Calculate geometry for wing sections
-        wing_geometry = calculate_section_geometry(plane['wing_sections'], self.alpha, is_symmetric=True, x_translate=0, z_translate=0)
+        wing_geometry = _calculate_section_geometry(plane['wing_sections'], self.alpha, is_symmetric=True, x_translate=0, z_translate=0)
     if 'horizontal_stabilizer' in plane:
         # Calculate geometry for horizontal stabilizer
         hs = plane['horizontal_stabilizer']
-        hs_geometry = calculate_section_geometry([hs], hs['alpha'], True, hs['x_translate'], hs['z_translate'])
+        if not isinstance(hs, dict):
+            raise ValueError("plane['horizontal_stabilizer'] must be a dict describing the stabilizer")
+        hs_geometry = _calculate_section_geometry([hs], hs.get('alpha', 0.0), True, hs.get('x_translate', 0.0), hs.get('z_translate', 0.0))
     if 'vertical_stabilizer' in plane:
         # Calculate geometry for vertical stabilizer
         vs = plane['vertical_stabilizer']
-        vs_geometry = calculate_section_geometry([vs], vs['alpha'], False, vs['x_translate'], vs['z_translate'])
+        if not isinstance(vs, dict):
+            raise ValueError("plane['vertical_stabilizer'] must be a dict describing the stabilizer")
+        vs_geometry = _calculate_section_geometry([vs], vs.get('alpha', 0.0), False, vs.get('x_translate', 0.0), vs.get('z_translate', 0.0))
 
     return wing_geometry, hs_geometry, vs_geometry
 
@@ -193,6 +414,7 @@ def interpolate_wing_points(self, type='wing'):
         geometry = self.vs_geometry
 
     leading_edge, trailing_edge, quarter_chord = (geometry[key] for key in ['leading_edge', 'trailing_edge', 'quarter_chord'])
+    twist_array = geometry.get('twist', None)
     chord_fractions = np.linspace(0, 1, m)  # Parameter from leading (0) to trailing (1) edge
     
     if type == 'wing' or type == 'hs':
@@ -210,10 +432,44 @@ def interpolate_wing_points(self, type='wing'):
         x_trailing  = np.interp(y_trailing, span_trailing, trailing_edge[0])
         z_leading   = np.interp(y_leading, span_leading, leading_edge[2])
         z_trailing  = np.interp(y_trailing, span_trailing, trailing_edge[2])
-        
-        # Interpolate along chord for each span position
-        wing_horizontal_lines   = [x_leading * (1 - s) + x_trailing * s for s in chord_fractions]
-        wing_z_coordinates      = [z_leading * (1 - s) + z_trailing * s for s in chord_fractions]
+
+        # If a twist distribution is provided (cumulative per-endpoint), compute
+        # twist per interpolated span sample and rotate chord points about the
+        # local quarter-chord. This allows per-panel twist that depends on the
+        # number of span panels `n` used for discretization.
+        if twist_array is not None:
+            x_q = quarter_chord[0]
+            y_q = quarter_chord[1]
+            z_q = quarter_chord[2]
+            # Interpolate quarter-chord position and twist to the sample y positions
+            qx_at_y = np.interp(y_leading, y_q, x_q)
+            qz_at_y = np.interp(y_leading, y_q, z_q)
+            twist_at_y = np.interp(y_leading, y_q, twist_array)
+        else:
+            qx_at_y = np.zeros_like(y_leading)
+            qz_at_y = np.zeros_like(y_leading)
+            twist_at_y = np.zeros_like(y_leading)
+
+        # Interpolate along chord for each span position (as 2D arrays m x n)
+        wing_horizontal_lines = []
+        wing_z_coordinates = []
+        for s in chord_fractions:
+            x_line = x_leading * (1 - s) + x_trailing * s
+            z_line = z_leading * (1 - s) + z_trailing * s
+            # Apply twist rotation per span sample
+            for j in range(x_line.shape[0]):
+                t = twist_at_y[j]
+                if t != 0.0:
+                    xr = x_line[j] - qx_at_y[j]
+                    zr = z_line[j] - qz_at_y[j]
+                    ct = np.cos(t); st = np.sin(t)
+                    x_line[j] = ct * xr + st * zr + qx_at_y[j]
+                    z_line[j] = -st * xr + ct * zr + qz_at_y[j]
+            wing_horizontal_lines.append(x_line)
+            wing_z_coordinates.append(z_line)
+
+        wing_horizontal_lines = np.array(wing_horizontal_lines)
+        wing_z_coordinates = np.array(wing_z_coordinates)
         wing_vertical_lines     = np.column_stack((y_leading, y_trailing, x_leading, x_trailing))
     
     elif type =='vs':  # Vertical stabilizer
@@ -497,7 +753,8 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         #print(f"ROOT: Root: {root}, Tip: {tip}, x1: {x1}, intrados_root: {intrados_root}, extrados_root: {extrados_root}")
                         z1_root = naca_airfoil_dzdx(NACA_root, intrados_root)
                         z2_root = naca_airfoil_dzdx(NACA_root, extrados_root)
-                        dz_root_ = z1_root - z2_root
+                        # Normalize by the chordwise step so this is a slope (dz/dx), not a raw height delta
+                        dz_root_ = (z1_root - z2_root) / (y2 - y1)
                         dz_root = np.append(dz_root, dz_root_)
 
                     elif np.isclose(x2, tip, atol=1e-6):
@@ -506,7 +763,7 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         #print(f"TIP: Root: {root}, Tip: {tip}, x2: {x2}, intrados_tip: {intrados_tip}, extrados_tip: {extrados_tip}")
                         z1_tip = naca_airfoil_dzdx(NACA_tip, intrados_tip)
                         z2_tip = naca_airfoil_dzdx(NACA_tip, extrados_tip)
-                        dz_tip_ = z1_tip - z2_tip
+                        dz_tip_ = (z1_tip - z2_tip) / (y2 - y1)
                         dz_tip = np.append(dz_tip, dz_tip_)
 
             dz_dx = np.zeros((len(dz_tip), len(span_idx)))
@@ -566,7 +823,8 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         #print(f"ROOT: Root: {root}, Tip: {tip}, z1: {z1}, intrados_root: {intrados_root}, extrados_root: {extrados_root}")
                         z1_root = naca_airfoil_dzdx(NACA_root, intrados_root)
                         z2_root = naca_airfoil_dzdx(NACA_root, extrados_root)
-                        dz_root_ = z1_root - z2_root
+                        # Normalize by the chordwise step so this is a slope (dz/dx), not a raw height delta
+                        dz_root_ = (z1_root - z2_root) / (y2 - y1)
                         dz_root = np.append(dz_root, dz_root_)
 
                     elif np.isclose(z2, tip, atol=1e-6):
@@ -575,7 +833,7 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         #print(f"TIP: Root: {root}, Tip: {tip}, z2: {z2}, intrados_tip: {intrados_tip}, extrados_tip: {extrados_tip}")
                         z1_tip = naca_airfoil_dzdx(NACA_tip, intrados_tip)
                         z2_tip = naca_airfoil_dzdx(NACA_tip, extrados_tip)
-                        dz_tip_ = z1_tip - z2_tip
+                        dz_tip_ = (z1_tip - z2_tip) / (y2 - y1)
                         dz_tip = np.append(dz_tip, dz_tip_)
 
             dz_dx = np.zeros((len(dz_tip), len(span_idx)))
