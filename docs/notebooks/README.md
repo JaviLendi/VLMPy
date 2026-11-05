@@ -46,9 +46,3 @@ incompressible, inviscid, irrotational flow over thin lifting surfaces at low Ma
 They do not model viscous drag, stall, separation, or compressibility, and they do not
 exercise unsteady VLM, aeroelastic, or flight-dynamics modules because those are roadmap
 items in `docs/README-plan.md`, not implemented code.
-
-The additional computational cells in this revision were executed individually with
-Python 3.13.15. The complete notebooks were not rerun from a clean kernel. Run every cell
-(Run All) and confirm the assertions before treating the full notebook outputs as verified.
-
-Notebook 05 is stored without outputs. Its 12 code cells were executed in order in a plain Python process (plot calls disabled) and all assertions passed; it was not run in a Jupyter kernel.

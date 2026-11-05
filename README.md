@@ -28,7 +28,6 @@
   - [Option 1: Windows Executable (Windows 10/11)](#option-1-windows-executable-windows-1011)
   - [Option 2: Install from Source](#option-2-install-from-source)
 - [Usage](#usage)
-  - [External 3D geometry](#external-3d-geometry)
 - [Project Structure](#project-structure)
 - [Submitting Issues](#submitting-issues)
 - [License](#license)
@@ -64,33 +63,46 @@
 
 <table align="center">
    <tr>
-      <td><img src="docs/screenshots/APP/bienvenida.png" alt="Welcome"/></td>
-      <td><img src="docs/screenshots/APP/menu.png" alt="Main Menu"/></td>
+      <td><img src="docs/screenshots/APP/bienvenida.png" alt="VLMPy home page on desktop"/></td>
    </tr>
    <tr>
-      <td align="center">Welcome</td>
-      <td align="center">Main Menu</td>
+      <td align="center">Home (desktop)</td>
    </tr>
+   <tr>
+      <td><img src="docs/screenshots/APP/curvatura.png" alt="NACA airfoil definition and live preview" width="100%"/></td>
+   </tr>
+   <tr>
+      <td align="center">NACA Airfoil Definition and Live Preview</td>
+   </tr>
+   <tr>
+      <td><img src="docs/screenshots/APP/discretizacion.png" alt="Wing Definition and 2D Planform Preview" width="100%"/></td>
+   </tr>
+   <tr>
+      <td align="center">Wing Definition and 2D Planform Preview</td>
+   </tr>
+   <tr>
+      <td><img src="docs/screenshots/APP/discretizacion2.png" alt="Wing Definition and 3D Planform Preview" width="100%"/></td>
+   </tr>
+   <tr>
+      <td align="center">Wing Definition and 3D Planform Preview</td>
+   </tr>
+
 </table>
-
-<p align="center">
-   <img src="docs/screenshots/APP/curvatura.png" alt="Wing Curvature" width="48%"/>
-   <img src="docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg" alt="3D Wing Discretization (A320)" width="48%"/>
-</p>
-
-</div>
 
 <details>
 <summary>View all screenshots</summary>
 
-- **Welcome**  
-   ![Welcome](docs/screenshots/APP/bienvenida.png)
+- **2D Panel-Method Pressure Coefficient (NACA 3215)**  
+   ![2D panel-method pressure coefficient for NACA 3215](docs/screenshots/APP/velocidad.png)
 
-- **Main Menu**  
-   ![Main Menu](docs/screenshots/APP/menu.png)
+- **2D Panel-Method results (NACA 3215)**  
+   ![2D panel-method results for NACA 3215](docs/screenshots/APP/airfoilresults.png)
 
-- **Wing Curvature**  
-   ![Curvature](docs/screenshots/APP/curvatura.png)
+- **Plane or Wing Results Panel Dashboard (CL Plot)**  
+   ![Plane or Wing Results Panel Dashboard (CL Plot)](docs/screenshots/APP/results1.png)
+
+- **Plane or Wing Results Panel Dashboard (3D Plot)**  
+   ![Plane or Wing Results Panel Dashboard (3D Plot)](docs/screenshots/APP/results2.png)
 
 - **3D Wing Discretization (A320)**  
    ![3D Discretization](docs/screenshots/A320/Wing_Discretization3d_htpyvtp1.svg)
@@ -147,12 +159,6 @@
 - **Web Interface**: Run `python src/vlm/app.py` to access the interactive web app at [http://localhost:5001](http://localhost:5001).
 
 Example notebooks and documentation are available in `docs/notebooks/` and `docs/`.
-
-### External 3D geometry
-
-The project roadmap includes importing or inspecting aircraft geometry created in OpenVSP and triangular surface meshes in STL format. OpenVSP is intended to provide a parametric aircraft source, while STL is treated as a surface mesh and does not contain complete aerodynamic metadata. Before external geometry can be analyzed, VLMPy must validate units, coordinate axes, scale, surface normals, connected components, and the mapping from mesh regions to aerodynamic components.
-
-This workflow is planned unless a corresponding importer and validation case are present in the current source tree. See `docs/README-plan.md` and `docs/README-agent.md` for the intended requirements.
 
 ---
 
