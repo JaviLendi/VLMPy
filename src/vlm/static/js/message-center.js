@@ -1,6 +1,8 @@
 /**
- * MessageCenter - Sistema unificado de mensajería para VLMPy
- * Usa las clases CSS: .message .success .error .info
+ * MessageCenter - Unified messaging system for VLMPy.
+ * Uses the CSS classes: .message .success .error .info
+ * Author: Javier Lendínez Castillo
+ * SPDX-License-Identifier: AGPL-3.0-only
  */
 class MessageCenter {
     #container;
@@ -11,7 +13,7 @@ class MessageCenter {
         this.#container = document.querySelector(selector) ?? this.#createContainer(selector);
         this.#timeout = defaultTimeout;
 
-        // Delegated click: cierra con botón
+        // Delegated click: close messages with the dismiss button.
         this.#container.addEventListener('click', e => {
             if (e.target.closest('[data-dismiss]')) {
                 const message = e.target.closest('.message');
@@ -19,13 +21,13 @@ class MessageCenter {
             }
         });
 
-        // Esc para limpiar todos los mensajes
+        // Press Escape to clear all messages.
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') this.clear();
         });
     }
 
-    /* Métodos públicos */
+    /* Public methods. */
     info(msg, timeout)    { this.#push(msg, 'info', timeout); }
     success(msg, timeout) { this.#push(msg, 'success', timeout); }
     warning(msg, timeout) { this.#push(msg, 'warning', timeout); }
@@ -48,7 +50,7 @@ class MessageCenter {
         handler(text, timeout);
     }
 
-    /* Privados */
+    /* Private methods. */
     #push(text, type, timeout = this.#timeout) {
         const hash = `${type}:${text}`;
         if (this.#activeMessages.has(hash)) return;
@@ -66,11 +68,11 @@ class MessageCenter {
 
     #createMessage(text, type, hash) {
         const message = document.createElement('div');
-        // Aplica clase base 'message' y la clase de severidad como clase separada
+        // Apply the base 'message' class and a separate severity class.
         message.classList.add('message', String(type || 'info').toLowerCase());
         message.dataset.hash = hash;
 
-        // Accesibilidad según severidad
+        // Set accessibility attributes based on severity.
         if (type === 'error' || type === 'warning') {
             message.setAttribute('role', 'alert');
             message.setAttribute('aria-live', 'assertive');
@@ -87,7 +89,7 @@ class MessageCenter {
         const closeButton = document.createElement('button');
         closeButton.className = 'message-close';
         closeButton.dataset.dismiss = '';
-        closeButton.setAttribute('aria-label', 'Cerrar mensaje');
+        closeButton.setAttribute('aria-label', 'Close message');
         closeButton.type = 'button';
         const icon = document.createElement('i');
         icon.className = 'fas fa-times';
@@ -96,7 +98,7 @@ class MessageCenter {
         content.append(textElement, closeButton);
         message.appendChild(content);
 
-        // Animación de entrada
+        // Animate the message entrance.
         requestAnimationFrame(() => message.classList.add('message-show'));
 
         return message;
@@ -124,7 +126,7 @@ class MessageCenter {
     }
 }
 
-/* Export / instancia global */
+/* Export and global instance. */
 window.MessageCenter = MessageCenter;
 window.messageCenter = new MessageCenter();
 

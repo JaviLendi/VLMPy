@@ -1,3 +1,7 @@
+/*
+ * Author: Javier Lendínez Castillo
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
 document.addEventListener('DOMContentLoaded', () => {
     // Cache DOM elements
     const DOM = {
@@ -393,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 300);
     };
 
-    // =================== FORM SUBMISSION HANDLERS - ACTUALIZADO ===================
+    // =================== FORM SUBMISSION HANDLERS - UPDATED ===================
     const handleFormSubmission = (form, endpoint, formName) => {
         if (!form) {
             console.error(`${formName} form not found`);

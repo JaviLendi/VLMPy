@@ -1,16 +1,17 @@
 /**
- * UnifiedConfigManager - Gestor unificado para Airfoil y Plane (Wing)
- * Combina funcionalidades de airfoil-config-manager.js y plane-config-manager.js
+ * UnifiedConfigManager - Unified manager for airfoil and plane (wing) configurations.
+ * Combines functionality from airfoil-config-manager.js and plane-config-manager.js.
  *
- * Autor: Javier L. (unificado, actualizado)
+ * Author: Javier Lendínez Castillo
+ * SPDX-License-Identifier: AGPL-3.0-only
  */
 class UnifiedConfigManager {
     constructor() {
         this.apiBase = '/api';
         this.cache = new Map();
-        this.controllers = new Map(); // AbortController por endpoint
-        this.currentType = null; // 'airfoil' | 'plane' (se establece al abrir modales)
-        // Elementos DOM (busca airfoil-form o wing-form)
+        this.controllers = new Map(); // AbortController per endpoint.
+        this.currentType = null; // 'airfoil' | 'plane' (set when opening a modal).
+        // DOM elements (look for airfoil-form or wing-form).
         this.elements = {
             messageContainer: document.getElementById('message-container'),
             plotArea: document.getElementById('plot-area'),
@@ -20,7 +21,7 @@ class UnifiedConfigManager {
 
         this.config = { messageTimeout: 5000, debug: false };
 
-        // Plantillas (precompiladas -> retornan strings)
+        // Precompiled templates that return strings.
         this.templates = {
             modalHTML: (title, body, footer = '', headerExtra = '') => `
                 <div class="modal-overlay modern-modal" data-modal="true" aria-hidden="false">
@@ -375,11 +376,11 @@ class UnifiedConfigManager {
     }
 
     // -----------------------
-    // Mensajes y modales
+    // Messages and modals.
     // -----------------------
     showMessage(text, type = 'info', timeout = this.config.messageTimeout) {
         if (window.messageCenter) {
-            // Mapear tipos si es necesario
+            // Map types if needed.
             const messageType = type.toLowerCase();
             if (typeof window.messageCenter[messageType] === 'function') {
                 window.messageCenter[messageType](text, timeout > 0 ? timeout : undefined);
@@ -387,15 +388,15 @@ class UnifiedConfigManager {
                 window.messageCenter.info(text, timeout > 0 ? timeout : undefined);
             }
         } else {
-            // Fallback si MessageCenter no está disponible
+            // Fall back if MessageCenter is unavailable.
             console.warn('MessageCenter not available, message:', text);
-            alert(text); // Fallback básico
+            alert(text); // Basic fallback.
         }
     }
     showModal(html) {
         this.closeAllModals(true);
         document.body.insertAdjacentHTML('beforeend', html);
-        // delegado: clicks en modal para cerrar o acciones internas
+        // Delegate modal clicks for closing and internal actions.
         const modal = document.querySelector('[data-modal="true"]');
         if (modal) {
             modal.addEventListener('click', (e) => {
@@ -403,24 +404,24 @@ class UnifiedConfigManager {
                 if (!btn) return;
                 const action = btn.dataset.action;
                 if (action === 'close') this.closeAllModals();
-                // acciones de save y demás son manejadas por escucha global (ver init)
+                // Save and other actions are handled by the global listener (see init).
             });
-            // cerrar al clicar overlay modal
+            // Close when clicking the modal overlay.
             modal.addEventListener('click', (e) => { if (e.target === modal) this.closeAllModals(); });
-            // doble click sobre una tarjeta -> cargar (load)
+            // Double-click a card to load it.
             modal.addEventListener('dblclick', (e) => {
                 try {
                     if (e.target.closest('[data-action]')) return; // ignore double-clicks on action buttons
                     const item = e.target.closest('.config-item');
                     if (!item) return;
                     const fname = item.dataset.filename;
-                    // si el item tiene botón load-results, usar executeLoadResults
+                    // Use executeLoadResults when the item has a load-results button.
                     const hasLoadResults = !!item.querySelector('[data-action="load-results"]');
                     if (hasLoadResults) {
                         if (typeof this.executeLoadResults === 'function') this.executeLoadResults(fname);
                         return;
                     }
-                    // determinar tipo del item
+                    // Determine the item type.
                     const explicit = item.querySelector('[data-action][data-type]');
                     const type = explicit ? explicit.dataset.type : this.currentType;
                     if (fname) this.executeLoad(fname, type);
@@ -432,7 +433,7 @@ class UnifiedConfigManager {
         document.querySelectorAll('[data-modal]').forEach(m => {
             if (immediate) { m.remove(); return; }
             if (m.dataset.modal === 'closing') return;
-            // 'closing' evita que los selectores [data-modal="true"] lo vean como activo
+            // Keep [data-modal="true"] selectors from treating a closing modal as active.
             m.dataset.modal = 'closing';
             m.setAttribute('aria-hidden', 'true');
             setTimeout(() => m.remove(), 180);
@@ -463,9 +464,9 @@ class UnifiedConfigManager {
     }
 
     // -----------------------
-    // Gestión de configuraciones
+    // Configuration management.
     // -----------------------
-    // Lista configs (tipo determina endpoint)
+    // List configurations; the type determines the endpoint.
     async listConfigs(type) {
         try {
             if (type === 'airfoil') {
@@ -481,7 +482,7 @@ class UnifiedConfigManager {
         }
     }
 
-    // Abre modal guardar (type define endpoint y formulario)
+    // Open the save modal; type determines the endpoint and form.
     async saveConfigAdvanced(type) {
         this.currentType = type;
         const footer = `
@@ -490,14 +491,14 @@ class UnifiedConfigManager {
         `;
         const html = this.templates.modalHTML('Save Configuration', this.templates.saveForm(type), footer);
         this.showModal(html);
-        // focus input inicial sin bloquear
+        // Focus the first input without blocking.
         requestAnimationFrame(() => {
             const inp = document.querySelector('#save-config-form input[type="text"]');
             if (inp) inp.focus();
         });
     }
 
-    // Ejecutar guardado (invocado por click delegado)
+    // Execute the save action (called by the delegated click handler).
     async executeSave(button) {
         const form = document.getElementById('save-config-form');
         if (!form) return this.showMessage('Save form not found', 'error');
@@ -536,7 +537,7 @@ class UnifiedConfigManager {
         }
     }
 
-    // Abre modal cargar (lista configs)
+    // Open the load modal and list configurations.
     async loadConfigAdvanced(type) {
         this.currentType = type;
         const configs = await this.listConfigs(type);
@@ -613,7 +614,7 @@ class UnifiedConfigManager {
             });
     }
 
-    // Ejecutar carga (invocado por click delegado)
+    // Execute the load action (called by the delegated click handler).
     async executeLoad(filename, type) {
         if (!filename) return this.showMessage('Filename missing', 'error');
         try {
@@ -846,7 +847,7 @@ class UnifiedConfigManager {
         }
     }
 
-    // Borrar config
+    // Delete a configuration.
     async deleteConfig(filename, type) {
         if (!filename) return;
         if (!confirm(`Delete "${filename}"?`)) return;
@@ -866,7 +867,7 @@ class UnifiedConfigManager {
         }
     }
 
-    // Validar configuración actual (según tipo)
+    // Validate the current configuration based on its type.
     async validateCurrentConfig(type) {
         if (type === 'airfoil') {
             const data = this._collectAirfoilFormData();
@@ -995,14 +996,14 @@ class UnifiedConfigManager {
     }
 
     // -----------------------
-    // Introspección / estado
+    // Introspection and state.
     // -----------------------
     getStatus() {
         return { initialized: true, cacheSize: this.cache.size, domFound: { messageContainer: !!this.elements.messageContainer, plotArea: !!this.elements.plotArea, airfoilForm: !!this.elements.airfoilForm, wingForm: !!this.elements.wingForm }, debug: this.config.debug };
     }
 
     // -----------------------
-    // Inicialización
+    // Initialization.
     // -----------------------
     async init() {
         document.addEventListener('click', this._handleGlobalClick);
@@ -1020,7 +1021,7 @@ class UnifiedConfigManager {
     log(...args) { if (this.config.debug) console.log('[UnifiedConfigManager]', ...args); }
 }
 
-// Auto-inicialización con fallback
+// Automatic initialization with a fallback.
 let unifiedConfigManager = null;
 document.addEventListener('DOMContentLoaded', async () => {
     try {

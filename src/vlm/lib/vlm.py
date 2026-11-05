@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
 
 import os
 import sys
@@ -395,7 +397,7 @@ class VLM:
             self.m += 1
         else:
             raise ValueError(
-                f"No se pudo ajustar la discretización tras {max_attempts} intentos: "
+                f"Could not adjust discretization after {max_attempts} attempts: "
                 f"len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}"
             )
 
@@ -931,7 +933,7 @@ def plane(self):
         mat_A = areas.reshape(n_sub, m_sub)
 
         sum_fila   = mat_f.sum(axis=1)       # array length n_sub
-        total      = sum_fila.sum()          # escalar
+        total      = sum_fila.sum()          # scalar
 
         area_strip = mat_A.sum(axis=1)       # array length n_sub
         CL_local   = sum_fila / (q_local * area_strip)

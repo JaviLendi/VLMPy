@@ -187,3 +187,8 @@ env/
 src/vlm/lib/__pycache__/config_manager.cpython-313.pyc
 src/vlm/lib/__pycache__/geometry.cpython-313.pyc
 src/vlm/lib/__pycache__/vlm.cpython-313.pyc
+/src/vlm/__pycache__
+/src/vlm/__pycache__
+src/vlm/__pycache__/webui.cpython-313.pyc
+/src/vlm/lib/__pycache__
+*.pyc

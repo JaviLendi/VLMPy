@@ -1,3 +1,6 @@
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 import os
 # Limit BLAS/OMP threads early to avoid oversubscription on multi-core systems
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -56,7 +59,7 @@ except Exception as e:
 
 import re
 
-# Local imports (asegúrate que el path '../' es correcto)
+# Local imports (ensure the '../' path is correct)
 import sys
 sys.path.append('../')
 from lib.vlm import (
@@ -209,10 +212,10 @@ def load_default_data_sync(filename: str, cache_key: str) -> dict:
         default_cache[cache_key] = data
         return data
     except FileNotFoundError:
-        logger.warning(f"{filename} no encontrado en {path}")
+        logger.warning(f"{filename} not found at {path}")
         default_cache[cache_key] = {}
     except json.JSONDecodeError as e:
-        logger.error(f"JSON inválido en {filename}: {e}", exc_info=True)
+        logger.error(f"Invalid JSON in {filename}: {e}", exc_info=True)
         default_cache[cache_key] = {}
     return {}
 
@@ -252,7 +255,7 @@ def legacy_compatibility(f):
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = str(uuid4())
-        logger.info(f"Nueva sesión creada: {session['session_id']}")
+        logger.info(f"New session created: {session['session_id']}")
     if "appearance_mode" not in session:
         session["appearance_mode"] = "System"
     if "effective_mode" not in session:
@@ -328,7 +331,7 @@ def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: 
         return {"status": "error", "message": f"VLM computation failed: {e}"}
 
 def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None, generation: Optional[int] = None):
-    # Envía el trabajo a thread_pool y espera el resultado (manteniendo la API existente)
+    # Submit the work to thread_pool and wait for the result, preserving the existing API.
     if generation is None:
         with vlm_sessions_lock:
             generation = vlm_session_generations.get(session_id, 0)
@@ -952,17 +955,17 @@ def delete_results_api():
 @session_required
 def generate_stl():
     """
-    Genera archivo STL con perfil NACA completo desde sesión VLM
+    Generate an STL file with a complete NACA profile from a VLM session.
 
-    Parámetros opcionales (GET/POST):
-    - naca_resolution: int (50-200) - Resolución del perfil NACA (default: 80)
-    - format: str ('ascii'|'binary') - Formato del STL (default: 'binary')
-    - filename: str - Nombre del archivo (default: 'wing_{session_id}.stl')
+    Optional parameters (GET/POST):
+    - naca_resolution: int (50-200) - NACA profile resolution (default: 80)
+    - format: str ('ascii'|'binary') - STL format (default: 'binary')
+    - filename: str - Output filename (default: 'wing_{session_id}.stl')
     """
     try:
         session_id = session.get("session_id")
 
-        # Obtener parámetros
+        # Read parameters.
         if request.method == 'POST' and request.is_json:
             data = request.get_json(silent=True) or {}
         else:
@@ -973,7 +976,7 @@ def generate_stl():
         from werkzeug.utils import secure_filename
         filename = secure_filename(str(data.get('filename', f'wing_{session_id}.stl'))) or 'wing.stl'
 
-        # Validar parámetros
+        # Validate parameters.
         if not (30 <= naca_resolution <= 200):
             return jsonify({
                 "status": "error", 
@@ -1002,7 +1005,7 @@ def generate_stl():
                 "message": "No plane defined. Please design a wing first."
             }), 400
 
-        # Verificar que existe la función de conversión a STL
+        # Check that the STL conversion function is available.
         try:
             from lib.wing_to_stl import wing_to_stl_with_naca_config
         except ImportError:
@@ -1011,16 +1014,16 @@ def generate_stl():
                 "message": "STL generation module not found. Please ensure 'wing_to_stl' is available."
             }), 500
 
-        # Generar STL con perfil NACA
+        # Generate the STL with a NACA profile.
         logger.info(f"Generating STL for session {session_id} with NACA resolution {naca_resolution}")
 
-        # Crear directorio temporal si no existe
+        # Create the temporary directory if it does not exist.
         temp_dir = BASE_DIR / "temp_stl"
         temp_dir.mkdir(exist_ok=True)
 
         output_path = temp_dir / filename
 
-        # Ejecutar generación en thread pool para no bloquear
+        # Run generation in the thread pool to avoid blocking.
         def generate():
             wing_mesh = wing_to_stl_with_naca_config(
                 plane,
@@ -1031,7 +1034,7 @@ def generate_stl():
             return wing_mesh
 
         future = thread_pool.submit(generate)
-        wing_mesh = future.result(timeout=60)  # Timeout de 60 segundos
+        wing_mesh = future.result(timeout=60)  # 60-second timeout.
 
         if wing_mesh is None or not output_path.exists():
             return jsonify({
@@ -1039,7 +1042,7 @@ def generate_stl():
                 "message": "Failed to generate STL file"
             }), 500
 
-        # Enviar archivo al usuario
+        # Send the file to the user.
         logger.info(f"STL generated successfully: {output_path}")
 
         return send_file(
@@ -1149,7 +1152,7 @@ def plot_data(plot_type):
 
         plot_func = plot_map.get(plot_type)
         if not plot_func:
-            return jsonify({"status": "error", "message": "Tipo de gráfico inválido"}), 400
+            return jsonify({"status": "error", "message": "Invalid plot type"}), 400
 
         fig_result = plot_func()
         if fig_result is None:
@@ -1170,10 +1173,10 @@ def plot_data(plot_type):
             plot_cache[cache_key] = plot_payload
         return jsonify({"plot": plot_payload, "cached": False})
     except Exception as e:
-        logger.exception(f"Error en /plot/{plot_type}")
+        logger.exception(f"Error in /plot/{plot_type}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Config management API (se mantienen las funciones del manager)
+# Config management API (manager functions are retained).
 @app.route('/api/configs', methods=['GET'])
 @session_required
 def list_configs():
@@ -1192,7 +1195,7 @@ def save_plane_config():
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if not vlm:
-            return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
 
         data = request.get_json() or {}
         filename = data.get('filename', f'plane_{session_id}')
@@ -1204,7 +1207,7 @@ def save_plane_config():
         # Plane configurations are reproducible only when flight and mesh
         # parameters travel with the geometry.
         config['flight_parameters'] = vlm.export_configuration(include_flight=True)['flight_parameters']
-        config['name'] = data.get('name', f'Configuración {session_id}')
+        config['name'] = data.get('name', f'Configuration {session_id}')
         config['description'] = data.get('description', '')
 
         result = config_manager.save_config(config, filename)
@@ -1222,7 +1225,7 @@ def load_plane_config():
         data = request.get_json() or {}
         filename = data.get('filename')
         if not filename:
-            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+            return jsonify({"status": "error", "message": "Filename is required"}), 400
 
         result = config_manager.load_config(filename)
         if result.get('status') != 'success':
@@ -1265,7 +1268,7 @@ def delete_config():
         data = request.get_json() or {}
         filename = data.get('filename')
         if not filename:
-            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+            return jsonify({"status": "error", "message": "Filename is required"}), 400
         result = config_manager.delete_config(filename)
         if result.get('status') == 'success':
             return jsonify(result)
@@ -1307,12 +1310,12 @@ def validate_config():
     try:
         config = request.get_json()
         if not config:
-            return jsonify({"status": "error", "message": "No se proporcionó configuración"}), 400
+            return jsonify({"status": "error", "message": "No configuration provided"}), 400
         config_type = "wing" if "wingsections" in config else "parameters"
         errors = config_manager.validate_config(config, config_type)
         if errors:
-            return jsonify({"status": "error", "message": "Configuración inválida", "validation_errors": errors, "is_valid": False})
-        return jsonify({"status": "success", "message": "Configuración válida", "is_valid": True, "checksum": config_manager.calculate_checksum(config)})
+            return jsonify({"status": "error", "message": "Invalid configuration", "validation_errors": errors, "is_valid": False})
+        return jsonify({"status": "success", "message": "Configuration is valid", "is_valid": True, "checksum": config_manager.calculate_checksum(config)})
     except Exception as e:
         logger.exception("Error in validate_config")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1320,9 +1323,9 @@ def validate_config():
 @app.route('/api/airfoil-configs', methods=['GET'])
 @session_required
 def list_airfoil_configs():
-    """Lista todas las configuraciones de airfoil guardadas"""
+    """List all saved airfoil configurations."""
     try:
-        # Busca archivos que empiecen con 'airfoil_' o terminen con '_airfoil.json'
+        # Find files that start with 'airfoil_' or end with '_airfoil.json'.
         configs = config_manager.list_configs("*airfoil*.json")
         
         return jsonify({
@@ -1340,7 +1343,7 @@ def list_airfoil_configs():
 @app.route('/api/saveairfoilconfig', methods=['POST'])
 @session_required
 def save_airfoil_config():
-    """Guarda una configuración de airfoil"""
+    """Save an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -1352,7 +1355,7 @@ def save_airfoil_config():
                 "message": "Filename is required"
             }), 400
             
-        # Validación básica de datos de airfoil
+        # Perform basic airfoil data validation.
         required_fields = ['naca', 'u', 'alpha', 'chord', 'n']
         missing_fields = [field for field in required_fields if field not in airfoil_data]
         
@@ -1362,11 +1365,11 @@ def save_airfoil_config():
                 "message": f"Missing required fields: {', '.join(missing_fields)}"
             }), 400
         
-        # Prefija el nombre del archivo para identificarlo como configuración de airfoil
+        # Prefix the filename to identify it as an airfoil configuration.
         if not filename.startswith('airfoil_'):
             filename = f"airfoil_{filename}"
         
-        # Estructura de datos para airfoil
+        # Build the airfoil configuration data.
         config_data = {
             "type": "airfoil",
             "naca": airfoil_data['naca'],
@@ -1405,7 +1408,7 @@ def save_airfoil_config():
 @app.route('/api/loadairfoilconfig', methods=['POST'])
 @session_required
 def load_airfoil_config():
-    """Carga una configuración de airfoil"""
+    """Load an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -1421,14 +1424,14 @@ def load_airfoil_config():
         if result['status'] == 'success':
             config = result['config']
             
-            # Valida que sea una configuración de airfoil
+            # Verify that this is an airfoil configuration.
             if config.get('type') != 'airfoil':
                 return jsonify({
                     "status": "error",
                     "message": "Selected file is not an airfoil configuration"
                 }), 400
             
-            # Extrae los datos del airfoil para el frontend
+            # Extract the airfoil data for the frontend.
             airfoil_data = {
                 "naca": config.get('naca', '0012'),
                 "u": config.get('u', 10.0),
@@ -1457,7 +1460,7 @@ def load_airfoil_config():
 
 @app.route('/api/deleteairfoilconfig', methods=['POST'])
 def delete_airfoil_config():
-    """Elimina una configuración de airfoil"""
+    """Delete an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -1487,14 +1490,14 @@ def delete_airfoil_config():
 
 @app.route('/api/validateairfoilconfig', methods=['POST'])
 def validate_airfoil_config():
-    """Valida una configuración de airfoil"""
+    """Validate an airfoil configuration."""
     try:
         data = request.get_json()
         airfoil_data = data.get('data', {})
         
         errors = []
         
-        # Validaciones específicas para airfoil
+        # Apply airfoil-specific validation rules.
         validations = {
             'naca': {
                 'required': True,

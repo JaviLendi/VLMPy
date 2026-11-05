@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 import sys
 sys.path.append('../')  # Add parent directory to path for module imports
 
@@ -1584,22 +1587,22 @@ def plot_wing_geometry(fig, wing_geometry, legend):
         fig.add_trace(go.Scatter3d(
             x=y_leading_edge, y=x_leading_edge, z=z_leading_edge,
             mode='lines', line=dict(color='blue', width=2),
-            name='Borde de ataque',
-            legendgroup='Borde de ataque',
+            name='Leading edge',
+            legendgroup='Leading edge',
             showlegend=True if legend == "Wing Geometry" else False,  # Show legend only if not "Wing Geometry"
         ))
         fig.add_trace(go.Scatter3d(
             x=y_trailing_edge, y=x_trailing_edge, z=z_trailing_edge,
             mode='lines', line=dict(color='red', width=2),
-            name='Borde de salida',
-            legendgroup='Borde de salida',
+            name='Trailing edge',
+            legendgroup='Trailing edge',
             showlegend=True if legend == "Wing Geometry" else False,  # Show legend only if not "Wing Geometry"
         ))
         fig.add_trace(go.Scatter3d(
             x=y_quarter_chord, y=x_quarter_chord, z=z_quarter_chord,
             mode='lines', line=dict(color='green', width=2),
-            name='Cuerda 1/4',
-            legendgroup='Cuerda 1/4',
+            name='Quarter-chord line',
+            legendgroup='Quarter-chord line',
             showlegend=True if legend == "Wing Geometry" else False,  # Show legend only if not "Wing Geometry"
         ))
         # Set layout
@@ -1617,7 +1620,7 @@ def plot_wing_geometry(fig, wing_geometry, legend):
                 center=dict(x=0, y=0, z=0),
                 eye=dict(x=0, y=0, z=2.5)
             )),
-            title=dict(text='Geometría del ala'),
+            title=dict(text='Wing Geometry'),
             legend=dict(x=0, y=1.02, orientation='h'),
         )
 
@@ -1647,8 +1650,8 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
         fig.add_trace(go.Scatter(
             x=y_leading_edge, y=x_leading_edge,
             mode='lines', line=dict(width=2),
-            name='Borde de ataque',
-            legendgroup='Borde de ataque',
+            name='Leading edge',
+            legendgroup='Leading edge',
             showlegend=True if legend == "Wing Geometry" else False
         ))
 
@@ -1656,8 +1659,8 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
         fig.add_trace(go.Scatter(
             x=y_trailing_edge, y=x_trailing_edge,
             mode='lines', line=dict(width=2),
-            name='Borde de salida',
-            legendgroup='Borde de salida',
+            name='Trailing edge',
+            legendgroup='Trailing edge',
             showlegend=True if legend == "Wing Geometry" else False
         ))
 
@@ -1665,8 +1668,8 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
         fig.add_trace(go.Scatter(
             x=y_quarter_chord, y=x_quarter_chord,
             mode='lines', line=dict(width=2),
-            name='Cuerda 1/4',
-            legendgroup='Cuerda 1/4',
+            name='Quarter-chord line',
+            legendgroup='Quarter-chord line',
             showlegend=True if legend == "Wing Geometry" else False
         ))
 
@@ -1675,8 +1678,8 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
             x=[y_leading_edge[0], y_trailing_edge[0]],
             y=[x_leading_edge[0], x_trailing_edge[0]],
             mode='lines', line=dict(width=2),
-            name='Cuerda en la punta',
-            legendgroup='Cuerda en la punta',
+            name='Root chord',
+            legendgroup='Root chord',
             showlegend=False
         ))
 
@@ -1684,8 +1687,8 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
             x=[y_leading_edge[-1], y_trailing_edge[-1]],
             y=[x_leading_edge[-1], x_trailing_edge[-1]],
             mode='lines', line=dict(width=2),
-            name='Cuerda en la punta',
-            legendgroup='Cuerda en la punta',
+            name='Tip chord',
+            legendgroup='Tip chord',
             showlegend=False
         ))
 
@@ -1694,7 +1697,7 @@ def plot_wing_geometry_2d(fig, wing_geometry, legend):
             xaxis_title='y [m]',
             yaxis_title='x [m]',
             margin=dict(l=50, r=50, t=50, b=50),  # Add 50-pixel margin on all sides
-            title=dict(text='Geometría del ala (2D)'),
+            title=dict(text='Wing Geometry (2D)'),
             legend=dict(x=0, y=1.02, orientation='h'),
             showlegend=True
         )

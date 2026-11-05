@@ -1,3 +1,6 @@
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """2D potential-flow panel methods for NACA 4-digit airfoils.
 
 Conventions

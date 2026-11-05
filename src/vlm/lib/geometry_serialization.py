@@ -1,3 +1,6 @@
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """JSON-ready geometry serializers for the interactive frontend."""
 
 from __future__ import annotations

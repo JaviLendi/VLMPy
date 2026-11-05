@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 System for loading and saving geometric configurations in JSON format
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<!-- Author: Javier Lendínez Castillo | SPDX-License-Identifier: AGPL-3.0-only -->
 <div class="container results-layout app-page">
     <div class="results-form-section results-dashboard">
         <div class="results-header">
@@ -48,7 +49,6 @@
                 <div class="results-metric"><span>{{ coefficient }}</span><strong>{{ value }}</strong><small>Moment coefficient</small></div>
                 {% endfor %}
             </div>
-            <p class="results-note">Solver axes: x downstream, y toward the positive semispan, z upward; moments follow the right-hand rule. References: wing planform area, span, mean aerodynamic chord and area-weighted quarter-chord point. Legacy CL/CD retain total-panel-area normalization.</p>
             <div class="results-force-grid">
                 <div class="result-item"><span class="result-label">Wing lift</span><span class="result-value" id="result-wing-lift">{{ wing_lift }} N</span></div>
                 <div class="result-item"><span class="result-label">Horizontal stabilizer lift</span><span class="result-value" id="result-hs-lift">{{ hs_lift }} N</span></div>

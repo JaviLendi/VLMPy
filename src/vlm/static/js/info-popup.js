@@ -1,8 +1,12 @@
-/* Info popups compartidos (wing, airfoil, results) */
+/*
+ * Author: Javier Lendínez Castillo
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+/* Shared info popups (wing, airfoil, results). */
 const INFO_ANIM_MS = 150;
 let activeInfoTrigger = null;
 
-/* backdrop que bloquea la interacción con todo salvo el popup */
+/* Block interaction with the page while a popup is open. */
 function setInfoBackdrop(show) {
   let backdrop = document.querySelector('.info-backdrop');
   if (!backdrop && show) {
@@ -21,7 +25,7 @@ function setInfoBackdrop(show) {
   }
 }
 
-/* oculta un popup con animación de salida */
+/* Hide a popup with an exit animation. */
 function hideInfoPopup(popup) {
   if (popup.getAttribute('aria-hidden') === 'true' && popup.style.display === 'none') return;
   popup.setAttribute('aria-hidden', 'true');
@@ -38,7 +42,7 @@ function openInfo(id) {
   if (!popup) return;
   activeInfoTrigger = document.activeElement;
   setInfoBackdrop(true);
-  // Fuera de contenedores con stacking context propio, para quedar sobre el backdrop
+  // Move the popup out of stacking contexts so it appears above the backdrop.
   if (popup.parentElement !== document.body) document.body.appendChild(popup);
   clearTimeout(popup._hideTimer);
   popup.classList.remove('hide');

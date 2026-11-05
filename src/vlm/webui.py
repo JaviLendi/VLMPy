@@ -1,3 +1,6 @@
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
@@ -89,14 +92,14 @@ class WebUI:
     def _handle_load_finished(self, ok):
         if not ok:
             print("[INFO] Reloading...")
-            QtCore.QTimer.singleShot(1000, self._view.reload)  # espera 1s y recarga
+            QtCore.QTimer.singleShot(1000, self._view.reload)  # Wait 1 second, then reload.
 
 
     def _run_gui(self):
         """Configure and start the GUI."""
         self._view.load(QtCore.QUrl(self._url))
 
-        # Añadir gestión de fallo en carga inicial
+        # Handle an initial page load failure.
         self._view.loadFinished.connect(self._handle_load_finished)
 
         settings = self._view.page().settings()

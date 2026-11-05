@@ -1,25 +1,25 @@
-"""
-EJEMPLO INTEGRADO: Generación de STL con Perfil NACA Completo
-Uso del script wing_to_stl_with_naca_ENHANCED.py
-"""
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
+"""Integrated example: generate STL geometry with a complete NACA profile."""
 
 import numpy as np
 
 
 def example_1_from_vlm_complete():
     """
-    Ejemplo 1: Generar STL desde objeto VLM COMPLETO
-    Incluye análisis aerodinámico + geometría 3D con perfil NACA
+    Example 1: Generate an STL from a complete VLM object.
+    Includes aerodynamic analysis and 3D geometry with a NACA profile.
     """
 
     from vlm import VLM
     from wing_to_stl import wing_to_stl_with_naca_profile
 
     print("\n" + "="*70)
-    print("EJEMPLO 1: STL Completo desde VLM (con análisis aerodinámico)")
+    print("EXAMPLE 1: Complete STL from VLM (with aerodynamic analysis)")
     print("="*70)
 
-    # Configuración del avión
+    # Aircraft configuration.
     plane = {
         'wing_sections': [
             {
@@ -36,8 +36,8 @@ def example_1_from_vlm_complete():
         ]
     }
 
-    # Crear y ejecutar VLM
-    print("\n1. Ejecutando análisis VLM...")
+    # Create and run the VLM solver.
+    print("\n1. Running VLM analysis...")
     vlm = VLM(plane, u=50, rho=1.225, alpha=np.radians(5), beta=0, n=20, m=10)
     vlm.calculate_geometry()
     vlm.calculate_discretization()
@@ -46,33 +46,33 @@ def example_1_from_vlm_complete():
     print(f"   ✓ Wing lift: {vlm.CL:.4f}")
     print(f"   ✓ Wing area: {vlm.wing_area:.4f} m²")
 
-    # Generar STL con perfil NACA
-    print("\n2. Generando STL con perfil NACA completo...")
+    # Generate the STL with a NACA profile.
+    print("\n2. Generating complete STL with a NACA profile...")
     wing_mesh = wing_to_stl_with_naca_profile(
         vlm,
-        output_filename='01_ala_vlm_con_naca.stl',
+        output_filename='01_vlm_wing_with_naca.stl',
         naca_resolution=80,
         format='binary'
     )
 
-    print("\n✓ Archivo generado: 01_ala_vlm_con_naca.stl")
+    print("\n✓ File generated: 01_vlm_wing_with_naca.stl")
 
     return vlm, wing_mesh
 
 
 def example_2_quick_generation():
     """
-    Ejemplo 2: Generación RÁPIDA sin ejecutar VLM
-    Solo geometría 3D con perfil NACA
+    Example 2: Quick generation without running VLM.
+    Generates only 3D geometry with a NACA profile.
     """
 
     from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
-    print("EJEMPLO 2: STL Rápido (sin VLM)")
+    print("EXAMPLE 2: Quick STL (without VLM)")
     print("="*70)
 
-    # Configuración simple
+    # Simple configuration.
     plane_config = {
         'wing_sections': [
             {
@@ -90,33 +90,33 @@ def example_2_quick_generation():
         'symmetric': True
     }
 
-    print("\n1. Generando STL rápido...")
+    print("\n1. Generating a quick STL...")
     wing_mesh = wing_to_stl_with_naca_config(
         plane_config,
-        output_filename='02_ala_rapida_con_naca.stl',
+        output_filename='02_quick_wing_with_naca.stl',
         naca_resolution=100,
         format='binary'
     )
 
-    print("\n✓ Archivo generado: 02_ala_rapida_con_naca.stl")
+    print("\n✓ File generated: 02_quick_wing_with_naca.stl")
 
     return wing_mesh
 
 
 def example_3_complex_wing():
     """
-    Ejemplo 3: Ala compleja con múltiples secciones y variación de perfil
+    Example 3: A complex wing with multiple sections and airfoil variations.
     """
 
     from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
-    print("EJEMPLO 3: Ala Compleja con Múltiples Secciones")
+    print("EXAMPLE 3: Complex Wing with Multiple Sections")
     print("="*70)
 
     plane_config = {
         'wing_sections': [
-            # Sección raíz (fuselaje)
+            # Root section (fuselage).
             {
                 'span_fraction': 2.0,
                 'chord_root': 1.5,
@@ -128,7 +128,7 @@ def example_3_complex_wing():
                 'twist_root': 0,
                 'twist_tip': np.radians(-1)
             },
-            # Sección media
+            # Mid-span section.
             {
                 'span_fraction': 2.5,
                 'chord_root': 1.2,
@@ -140,7 +140,7 @@ def example_3_complex_wing():
                 'twist_root': np.radians(-1),
                 'twist_tip': np.radians(-2)
             },
-            # Sección punta (winglet)
+            # Tip section (winglet).
             {
                 'span_fraction': 1.5,
                 'chord_root': 0.9,
@@ -156,29 +156,28 @@ def example_3_complex_wing():
         'symmetric': True
     }
 
-    print("\n1. Generando ala compleja...")
+    print("\n1. Generating a complex wing...")
     wing_mesh = wing_to_stl_with_naca_config(
         plane_config,
-        output_filename='03_ala_compleja_con_naca.stl',
+        output_filename='03_complex_wing_with_naca.stl',
         naca_resolution=120,
         format='binary'
     )
 
-    print("\n✓ Archivo generado: 03_ala_compleja_con_naca.stl")
+    print("\n✓ File generated: 03_complex_wing_with_naca.stl")
 
     return wing_mesh
 
 
 def example_4_comparison():
     """
-    Ejemplo 4: Comparación de resoluciones NACA
-    Permite visualizar el impacto de la resolución
+    Example 4: Compare NACA resolutions and visualize their effects.
     """
 
     from wing_to_stl import wing_to_stl_with_naca_config
 
     print("\n" + "="*70)
-    print("EJEMPLO 4: Comparación de Resoluciones NACA")
+    print("EXAMPLE 4: NACA Resolution Comparison")
     print("="*70)
 
     plane_config = {
@@ -200,11 +199,11 @@ def example_4_comparison():
 
     resolutions = [30, 50, 80, 150]
 
-    print("\n1. Generando STL con diferentes resoluciones...")
+    print("\n1. Generating STL files at different resolutions...")
 
     for res in resolutions:
-        filename = f'04_ala_resolucion_{res}.stl'
-        print(f"\n   Generando con resolución {res}...")
+        filename = f'04_wing_resolution_{res}.stl'
+        print(f"\n   Generating at resolution {res}...")
 
         wing_mesh = wing_to_stl_with_naca_config(
             plane_config,
@@ -213,64 +212,64 @@ def example_4_comparison():
             format='binary'
         )
 
-    print("\n✓ Archivos generados:")
+    print("\n✓ Files generated:")
     for res in resolutions:
-        print(f"   • 04_ala_resolucion_{res}.stl")
+        print(f"   • 04_wing_resolution_{res}.stl")
 
-    print("\n💡 Recomendación:")
-    print("   • Resolución 50-80:  Buena relación geometría/tamaño")
-    print("   • Resolución 100+:   Muy suave para impresión 3D")
-    print("   • Resolución 30-40:  Rápido para visualización preliminar")
+    print("\n💡 Recommendations:")
+    print("   • Resolution 50-80:  Good geometry-to-file-size tradeoff")
+    print("   • Resolution 100+:   Smooth enough for 3D printing")
+    print("   • Resolution 30-40:  Fast for preliminary visualization")
 
 
 # ============================================================================
-# FUNCIÓN PRINCIPAL
+# MAIN FUNCTION
 # ============================================================================
 
 if __name__ == "__main__":
 
     print("\n" + "="*70)
-    print("EJEMPLOS: Generación de STL con Perfil NACA Completo")
+    print("EXAMPLES: STL Generation with a Complete NACA Profile")
     print("="*70)
 
     try:
-        # Ejecutar ejemplos
-        print("\n[Ejecutando Ejemplo 1]")
+        # Run the examples.
+        print("\n[Running Example 1]")
         example_1_from_vlm_complete()
 
-        print("\n[Ejecutando Ejemplo 2]")
+        print("\n[Running Example 2]")
         example_2_quick_generation()
 
-        print("\n[Ejecutando Ejemplo 3]")
+        print("\n[Running Example 3]")
         example_3_complex_wing()
 
-        print("\n[Ejecutando Ejemplo 4]")
+        print("\n[Running Example 4]")
         example_4_comparison()
 
-        # Resumen final
+        # Final summary.
         print("\n" + "="*70)
-        print("✅ TODOS LOS EJEMPLOS COMPLETADOS CON ÉXITO")
+        print("✅ ALL EXAMPLES COMPLETED SUCCESSFULLY")
         print("="*70)
 
-        print("\n📁 Archivos generados:")
-        print("   1. 01_ala_vlm_con_naca.stl        - STL desde VLM")
-        print("   2. 02_ala_rapida_con_naca.stl     - STL rápido")
-        print("   3. 03_ala_compleja_con_naca.stl   - Ala con 3 secciones")
-        print("   4. 04_ala_resolucion_*.stl        - Comparación de resoluciones")
+        print("\n📁 Files generated:")
+        print("   1. 01_vlm_wing_with_naca.stl       - STL from VLM")
+        print("   2. 02_quick_wing_with_naca.stl     - Quick STL")
+        print("   3. 03_complex_wing_with_naca.stl   - Three-section wing")
+        print("   4. 04_wing_resolution_*.stl        - Resolution comparison")
 
-        print("\n🎯 Próximos pasos:")
-        print("   1. Abre los archivos en FreeCAD: File → Open")
-        print("   2. O visualiza en: https://www.viewstl.com/")
-        print("   3. Compara las diferentes resoluciones")
+        print("\n🎯 Next steps:")
+        print("   1. Open the files in FreeCAD: File → Open")
+        print("   2. Or view them at: https://www.viewstl.com/")
+        print("   3. Compare the different resolutions")
 
-        print("\n💾 Para guardar tus propias alas:")
-        print("   • Modifica 'plane_config' con tus parámetros")
-        print("   • Llama a wing_to_stl_with_naca_config()")
-        print("   • ¡Listo para importar en CAD o slicers!")
+        print("\n💾 To save your own wings:")
+        print("   • Update 'plane_config' with your parameters")
+        print("   • Call wing_to_stl_with_naca_config()")
+        print("   • Then import the files into CAD or a slicer")
 
         print("\n" + "="*70)
 
     except Exception as e:
-        print(f"\n✗ Error durante la ejecución: {e}")
+        print(f"\n✗ Error during execution: {e}")
         import traceback
         traceback.print_exc()

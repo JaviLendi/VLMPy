@@ -1,3 +1,6 @@
+# Author: Javier Lendínez Castillo
+# SPDX-License-Identifier: AGPL-3.0-only
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
