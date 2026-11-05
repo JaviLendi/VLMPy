@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
+<div class="container wing-layout app-page">
     <div class="form-section wing-form-section">
         <div class="form-group-header">
             <div>
-                <span class="results-eyebrow">Geometry input</span>
-                <h2 style="margin: 0;">Plane Definition</h2>
+                <span class="results-eyebrow">AIRCRAFT DESIGN / 3D</span>
+                <h2>Plane Definition</h2>
                 <p class="wing-panel-subtitle">Define the aircraft, control surfaces and analysis resolution.</p>
             </div>
             <button type="button" class="info-button" onclick="openInfo('plane-definition-info-popup')" aria-label="Show info about plane definition">
@@ -20,7 +20,7 @@
                 <ul>
                 <li><b>Flight Velocity:</b> Aircraft speed in meters per second (m/s). Determines aerodynamic forces.</li>
                 <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³). Affects lift and drag calculations.</li>
-                <li><b>Angle of Attack:</b> Angle between the wing chord and the airflow (degrees). Influences lift and stall behavior.</li>
+                <li><b>Angle of Attack:</b> Incidence used by the inviscid VLM analysis to calculate aerodynamic loads. Stall is not modeled.</li>
                 <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees). Important for lateral stability.</li>
                 </ul>
             </li>
@@ -70,11 +70,11 @@
             </div>
             <button type="button" class="info-footer" onclick="closeInfo('plane-definition-info-popup')">Close</button>
         </div>
-        <form id="wing-form" aria-label="Plane Definition Form">
+        <form id="wing-form" aria-label="Plane Definition Form" autocomplete="off">
             <!-- Flight Condition -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Flight Condition</h3>
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Condition</span><h3>Flight Condition</h3></div>
                     <button type="button" class="info-button" onclick="openInfo('flight-condition-info-popup')" aria-label="Show info about flight condition">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
@@ -85,7 +85,7 @@
                     <ul>
                         <li><b>Flight Velocity:</b> Speed of the aircraft in meters per second (m/s).</li>
                         <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³).</li>
-                        <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming airflow (degrees).</li>
+                        <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming flow, entered in degrees. The VLM estimates attached-flow loads and does not predict stall.</li>
                         <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees).</li>
                     </ul>
                     </div>
@@ -105,9 +105,9 @@
             </section>
 
             <!-- Wing Geometry -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Wing Geometry</h3>
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Main surface</span><h3>Wing Geometry</h3></div>
                     <button type="button" class="info-button" onclick="openInfo('wing-geometry-info-popup')" aria-label="Show info about wing geometry">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
@@ -138,9 +138,9 @@
             </section>
 
             <!-- Horizontal Stabilizer -->
-            <section class="stabilizer-section">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Horizontal Stabilizer</h3>
+            <section class="stabilizer-section wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Tail</span><h3>Horizontal Stabilizer</h3></div>
                     <button type="button" class="info-button" onclick="openInfo('horizontal-stabilizer-info-popup')" aria-label="Show info about horizontal stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
@@ -187,9 +187,9 @@
             </section>
 
             <!-- Vertical Stabilizer -->
-            <section class="stabilizer-section">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Vertical Stabilizer</h3>
+            <section class="stabilizer-section wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Tail</span><h3>Vertical Stabilizer</h3></div>
                     <button type="button" class="info-button" onclick="openInfo('vertical-stabilizer-info-popup')" aria-label="Show info about vertical stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
@@ -235,9 +235,9 @@
             </section>
 
             <!-- Discretization -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Discretization</h3>
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Analysis</span><h3>Discretization</h3></div>
                     <button type="button" class="info-button" onclick="openInfo('discretization-info-popup')" aria-label="Show info about discretization">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
@@ -276,7 +276,10 @@
     </div>
     <div class="form-section wing-preview-section" id="wing-preview-panel">
         <div class="form-group-header">
-            <h2 style="margin: 0;">Interactive Planform Preview</h2>
+            <div>
+                <span class="results-eyebrow">LIVE GEOMETRY</span>
+                <h2>Interactive Planform Preview</h2>
+            </div>
             <span id="wing-preview-status" class="wing-preview-status">Live preview</span>
         </div>
         <div class="wing-preview-controls" role="group" aria-label="Preview controls">
@@ -320,7 +323,8 @@
 <script>
 
 // Pass default plane from Flask to JavaScript
-const defaultPlane = {{ default_plane | tojson }};
+// A top-level const is not a window property, so assign it explicitly.
+window.defaultPlane = {{ initial_plane | tojson }};
 
 function wingPreviewNumber(value, fallback = 0) {
     const number = Number(value);
@@ -809,6 +813,7 @@ const scheduleWingPreview = () => {
     window.cancelAnimationFrame(wingPreviewFrame);
     wingPreviewFrame = window.requestAnimationFrame(renderWingPreview);
 };
+window.addEventListener('vlmpy:configuration-loaded', scheduleWingPreview);
 
 document.addEventListener('DOMContentLoaded', () => {
     const sectionsContainer = document.getElementById('sections');
@@ -817,7 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sectionsObserver.observe(sectionsContainer, {childList: true, subtree: true});
     }
     document.getElementById('wing-form')?.addEventListener('click', event => {
-        if (event.target.closest('[aria-controls="horizontal-stabilizer-section"], [aria-controls="vertical-stabilizer-section"]')) {
+        if (event.target.closest('[aria-controls="horizontal-stabilizer-section"], [aria-controls="vertical-stabilizer-section"], .toggle-button, .toggle-buttons')) {
             scheduleWingPreview();
         }
     });
@@ -889,7 +894,20 @@ function resolveResetConfirmation(confirmed) {
 async function resetAllPlane() {
     const confirmed = await requestResetConfirmation();
     if (!confirmed) return;
-    window.location.reload();
+    try {
+        const response = await fetch('/api/reset_plane', {
+            method: 'POST',
+            headers: {'Accept': 'application/json'}
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || `Reset failed (HTTP ${response.status})`);
+        }
+        window.location.assign('/wing');
+    } catch (error) {
+        console.error('Plane reset failed:', error);
+        window.messageCenter?.error(`Could not reset plane: ${error.message}`);
+    }
 }
 
 function erasePlot() {
@@ -904,6 +922,8 @@ const radToDeg = r => (r == null ? r : r * 57.29577951308232);
 
 function convertAngleIfNeeded(value, isAngle = false) {
     if (!isAngle || value == null) return value;
+    if (window.wingConfigAngleUnit === 'rad') return radToDeg(value);
+    if (window.wingConfigAngleUnit === 'deg') return value;
     return Math.abs(value) <= 6.28 ? radToDeg(value) : value;
 }
 
@@ -966,6 +986,7 @@ window.populateFormWithConfig = async function populateFormWithConfig(config) {
         }
 
     config = config || {};
+    window.wingConfigAngleUnit = config.angle_unit || 'auto';
     if (config.wingsections && !config.wing_sections) config.wing_sections = config.wingsections;
     if (config.horizontalstabilizer && !config.horizontal_stabilizer) config.horizontal_stabilizer = config.horizontalstabilizer;
     if (config.verticalstabilizer && !config.vertical_stabilizer) config.vertical_stabilizer = config.verticalstabilizer;
@@ -1148,67 +1169,7 @@ document.getElementById('wing-form').addEventListener('keydown', function(event)
 });
 
 
-    // Close any info popup when clicking outside (use aria-hidden state)
-    document.addEventListener('mousedown', function(event) {
-        document.querySelectorAll('.info-popup').forEach(function(popup) {
-            if (popup.getAttribute('aria-hidden') === 'false' && !popup.contains(event.target)) {
-                closeInfo(popup.id);
-            }
-        });
-    });
 
-    // Close any info popup when pressing Escape (use aria-hidden state)
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            document.querySelectorAll('.info-popup').forEach(function(popup) {
-                if (popup.getAttribute('aria-hidden') === 'false') {
-                    closeInfo(popup.id);
-                }
-            });
-        }
-    });
-
-/* abrir popup por id */
-let activeInfoTrigger = null;
-
-function openInfo(id) {
-    const popup = document.getElementById(id);
-    if (!popup) return;
-    activeInfoTrigger = document.activeElement;
-    // Show popup as flex container so CSS layout (.info-body/.info-footer) applies
-    popup.style.display = 'flex';
-    popup.setAttribute('aria-hidden', 'false');
-    popup.focus?.();
-}
-
-/* cerrar popup por id (opcional) */
-function closeInfo(id) {
-  const popup = document.getElementById(id);
-  if (!popup) return;
-  popup.style.display = 'none';
-  popup.setAttribute('aria-hidden', 'true');
-    activeInfoTrigger?.focus?.();
-    activeInfoTrigger = null;
-  const backdrop = document.querySelector('.info-backdrop');
-  if (backdrop) backdrop.style.display = 'none';
-}
-
-/* cerrar todos (útil al click fuera o con ESC) */
-function closeAllInfo() {
-  document.querySelectorAll('.info-popup').forEach(p => {
-    p.style.display = 'none';
-    p.setAttribute('aria-hidden', 'true');
-  });
-    activeInfoTrigger?.focus?.();
-    activeInfoTrigger = null;
-  const backdrop = document.querySelector('.info-backdrop');
-  if (backdrop) backdrop.style.display = 'none';
-}
-
-/* cerrar con Escape */
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeAllInfo();
-});
 
 // DOM initialization and default plane population
 document.addEventListener('DOMContentLoaded', () => {

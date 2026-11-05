@@ -11,6 +11,7 @@ import plotly.colors
 import json
 import time
 import hashlib
+import copy
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -77,7 +78,9 @@ class VLM:
             'CD_locals', 'lift_wing', 'lift_hs', 'lift_vs', 'drag_wing',
             'drag_hs', 'drag_vs', 'CL_locals_wing', 'CL_locals_hs',
             'CL_locals_vs', 'CD_locals_wing', 'CD_locals_hs',
-            'CD_locals_vs'
+            'CD_locals_vs', 'aerodynamic_coefficients', 'CX', 'CY', 'CZ',
+            'Cl', 'Cm', 'Cn', 'force_coefficients', 'moment_coefficients',
+            'static_derivatives',
         ):
             self.__dict__.pop(name, None)
 
@@ -181,15 +184,24 @@ class VLM:
         }
         np.savez_compressed(arrays_path, **arrays)
         configuration = self.export_configuration(include_flight=True)
+        summary = {
+            'CL': float(self.CL), 'CD': float(self.CD),
+            'lift': float(self.lift), 'drag': float(self.drag),
+            'force_coefficients': {
+                key: float(value) for key, value in self.force_coefficients.items()
+            },
+            'moment_coefficients': {
+                key: float(value) for key, value in self.moment_coefficients.items()
+            },
+        }
+        if getattr(self, 'static_derivatives', None) is not None:
+            summary['static_derivatives'] = self.static_derivatives
         manifest = {
             'schema': 'vlmpy.results',
             'schema_version': 1,
             'configuration': configuration,
             'configuration_checksum': self.configuration_checksum(configuration),
-            'summary': {
-                'CL': float(self.CL), 'CD': float(self.CD),
-                'lift': float(self.lift), 'drag': float(self.drag),
-            },
+            'summary': summary,
             'arrays': {
                 'file': arrays_path.name,
                 'keys': {key: {'shape': list(value.shape), 'dtype': str(value.dtype)} for key, value in arrays.items()},
@@ -209,6 +221,8 @@ class VLM:
             raise ValueError('Results manifest has no configuration')
         if self.configuration_checksum(configuration) != manifest.get('configuration_checksum'):
             raise ValueError('Results configuration checksum is invalid')
+        if self.panel_data is None:
+            self.calculate_discretization()
         arrays_path = manifest_path.parent / manifest['arrays']['file']
         with np.load(arrays_path, allow_pickle=False) as loaded:
             arrays = {key: np.asarray(loaded[key]) for key in manifest['arrays']['keys']}
@@ -241,6 +255,19 @@ class VLM:
         self.CD_locals_wing = self.CD_locals['CD_wing']
         self.CD_locals_hs = self.CD_locals['CD_hs']
         self.CD_locals_vs = self.CD_locals['CD_vs']
+        self.u_ = calculate_w_i(
+            self.panel_data, self.u, self.dz_c, self.alpha, self.beta
+        )[3]
+        self.aerodynamic_coefficients = _calculate_aerodynamic_coefficients(self)
+        self.force_coefficients = self.aerodynamic_coefficients['force_coefficients']
+        self.moment_coefficients = self.aerodynamic_coefficients['moment_coefficients']
+        self.CX, self.CY, self.CZ = (
+            self.force_coefficients[key] for key in ('CX', 'CY', 'CZ')
+        )
+        self.Cl, self.Cm, self.Cn = (
+            self.moment_coefficients[key] for key in ('Cl', 'Cm', 'Cn')
+        )
+        self.static_derivatives = manifest.get('summary', {}).get('static_derivatives')
         self._solution_state_key = self._solution_cache_key()
         self.results = manifest
         return manifest
@@ -391,6 +418,15 @@ class VLM:
 
         # Calculate wing lift
         self.w_i, self.P_ij, self.gammas, self.lift_wing2, self.lift, self.lift_sum, self.CL, self.CL_locals, self.drag_wing2, self.drag, self.drag_sum, self.CD, self.CD_locals = plane(self)
+        self.aerodynamic_coefficients = _calculate_aerodynamic_coefficients(self)
+        self.force_coefficients = self.aerodynamic_coefficients['force_coefficients']
+        self.moment_coefficients = self.aerodynamic_coefficients['moment_coefficients']
+        self.CX, self.CY, self.CZ = (
+            self.force_coefficients[key] for key in ('CX', 'CY', 'CZ')
+        )
+        self.Cl, self.Cm, self.Cn = (
+            self.moment_coefficients[key] for key in ('Cl', 'Cm', 'Cn')
+        )
 
         self.lift_wing = self.lift_sum['lift_wing']
         if 'horizontal_stabilizer' in self.plane:
@@ -433,6 +469,7 @@ class VLM:
         angles_rad = np.radians(angles_deg)
         cl_values = []
         cd_values = []
+        coefficient_values = {name: [] for name in ('CX', 'CY', 'CZ', 'Cl', 'Cm', 'Cn')}
 
         original_alpha = self.alpha
 
@@ -442,6 +479,8 @@ class VLM:
                 self.calculate_wing_lift()
                 cl_values.append(self.CL)
                 cd_values.append(self.CD)
+                for name in coefficient_values:
+                    coefficient_values[name].append(getattr(self, name))
         finally:
             self.alpha = original_alpha
             self._geometry_cache_key = None
@@ -451,7 +490,8 @@ class VLM:
         sweep_results = {
             'angles_deg': angles_deg,
             'CL': cl_values,
-            'CD': cd_values
+            'CD': cd_values,
+            **coefficient_values,
         }
 
         self.results = sweep_results
@@ -459,6 +499,148 @@ class VLM:
 
     def run_vlm(self):
         self.calculate_wing_lift()
+
+    def calculate_static_derivatives(self, step_deg=0.1):
+        """Estimate static coefficient derivatives by central differences per radian."""
+        step_deg = float(step_deg)
+        if not np.isfinite(step_deg) or step_deg <= 0:
+            raise ValueError('step_deg must be a positive finite number')
+        step = np.radians(step_deg)
+        coefficient_names = ('CX', 'CY', 'CZ', 'Cl', 'Cm', 'Cn')
+        plane = copy.deepcopy(self.plane)
+        alpha = self.alpha
+        beta = self.beta
+        n, m = self.n, self.m
+        results = self.results
+
+        def evaluate(plane, alpha, beta):
+            self.plane = copy.deepcopy(plane)
+            self.alpha = alpha
+            self.beta = beta
+            self.invalidate_state()
+            self.calculate_wing_lift()
+            return np.array([getattr(self, name) for name in coefficient_names], dtype=float)
+
+        def derivative(plane_plus, alpha_plus, beta_plus, plane_minus, alpha_minus, beta_minus):
+            plus = evaluate(plane_plus, alpha_plus, beta_plus)
+            minus = evaluate(plane_minus, alpha_minus, beta_minus)
+            return (plus - minus) / (2 * step)
+
+        try:
+            alpha_derivative = derivative(
+                plane, alpha + step, beta,
+                plane, alpha - step, beta,
+            )
+            beta_derivative = derivative(
+                plane, alpha, beta + step,
+                plane, alpha, beta - step,
+            )
+            control_derivatives = {}
+            for section_index, section in enumerate(plane.get('wing_sections', [])):
+                if 'deflection_angle' not in section:
+                    continue
+                plane_plus = copy.deepcopy(plane)
+                plane_minus = copy.deepcopy(plane)
+                plane_plus['wing_sections'][section_index]['deflection_angle'] = float(section['deflection_angle']) + step
+                plane_minus['wing_sections'][section_index]['deflection_angle'] = float(section['deflection_angle']) - step
+                control_derivatives[f'wing_section_{section_index + 1}'] = derivative(
+                    plane_plus, alpha, beta,
+                    plane_minus, alpha, beta,
+                )
+        finally:
+            self.plane = plane
+            self.alpha = alpha
+            self.beta = beta
+            self.n, self.m = n, m
+            self.invalidate_state()
+            self.calculate_wing_lift()
+            self.results = results
+
+        derivative_names = tuple(f'd{name}_dalpha' for name in coefficient_names)
+        beta_names = tuple(f'd{name}_dbeta' for name in coefficient_names)
+        control_names = tuple(f'd{name}_ddelta' for name in coefficient_names)
+        derivatives = {
+            'step_deg': step_deg,
+            'units': 'per radian',
+            'alpha': dict(zip(derivative_names, map(float, alpha_derivative))),
+            'beta': dict(zip(beta_names, map(float, beta_derivative))),
+            'controls': {
+                name: dict(zip(control_names, map(float, values)))
+                for name, values in control_derivatives.items()
+            },
+        }
+        self.static_derivatives = derivatives
+        return derivatives
+
+
+def _calculate_aerodynamic_coefficients(vlm):
+    wing_sections = vlm.plane['wing_sections']
+    span = sum(float(section['span_fraction']) for section in wing_sections)
+    reference_area = sum(
+        float(section['span_fraction'])
+        * (float(section['chord_root']) + float(section['chord_tip'])) / 2
+        for section in wing_sections
+    )
+    if reference_area <= 0 or span <= 0:
+        raise ValueError('Wing reference dimensions must be positive')
+    mean_aerodynamic_chord = sum(
+        float(section['span_fraction'])
+        * (
+            float(section['chord_root']) ** 2
+            + float(section['chord_root']) * float(section['chord_tip'])
+            + float(section['chord_tip']) ** 2
+        ) / 3
+        for section in wing_sections
+    ) / reference_area
+    if mean_aerodynamic_chord <= 0:
+        raise ValueError('Wing reference dimensions must be positive')
+
+    wing_panel_count = vlm.n * vlm.m
+    wing_panels = vlm.panel_data[:wing_panel_count]
+    wing_areas = np.asarray(vlm.panel_areas[:wing_panel_count], dtype=float)
+    quarter_chord_centers = np.asarray([
+        (np.asarray(panel[2][0], dtype=float) + np.asarray(panel[2][1], dtype=float)) / 2
+        for panel in wing_panels
+    ])[:, [1, 0, 2]]
+    reference_point = np.average(quarter_chord_centers, axis=0, weights=wing_areas)
+
+    bound_segments = np.asarray([
+        np.asarray(panel[2][1], dtype=float) - np.asarray(panel[2][0], dtype=float)
+        for panel in vlm.panel_data
+    ])[:, [1, 0, 2]]
+    freestream = np.asarray([vlm.u_[1], vlm.u_[0], vlm.u_[2]], dtype=float)
+    speed = np.linalg.norm(freestream)
+    if speed <= 0:
+        raise ValueError('Freestream speed must be positive to calculate coefficients')
+
+    lift_forces = vlm.rho * vlm.gammas[:, None] * np.cross(freestream, bound_segments)
+    induced_velocity = vlm.P_ij_resis @ vlm.gammas
+    panel_lengths = np.linalg.norm(bound_segments, axis=1)
+    induced_drag = -vlm.rho * induced_velocity * vlm.gammas * panel_lengths
+    panel_forces = lift_forces - induced_drag[:, None] * freestream[None, :] / speed
+    force = panel_forces.sum(axis=0)
+    panel_positions = np.asarray([
+        (np.asarray(panel[2][0], dtype=float) + np.asarray(panel[2][1], dtype=float)) / 2
+        for panel in vlm.panel_data
+    ])[:, [1, 0, 2]]
+    moment = np.cross(panel_positions - reference_point, panel_forces).sum(axis=0)
+
+    dynamic_pressure = 0.5 * vlm.rho * speed ** 2
+    force_scale = dynamic_pressure * reference_area
+    moment_scale = force_scale * np.array([span, mean_aerodynamic_chord, span])
+    return {
+        'force_coefficients': dict(zip(('CX', 'CY', 'CZ'), force / force_scale)),
+        'moment_coefficients': dict(zip(('Cl', 'Cm', 'Cn'), moment / moment_scale)),
+        'reference': {
+            'area': reference_area,
+            'span': span,
+            'mean_aerodynamic_chord': mean_aerodynamic_chord,
+            'point': reference_point,
+        },
+        'force': force,
+        'moment': moment,
+    }
+
 
 """ # Calculate the aerodynamic influence coefficient matrix
 def calculate_P_ij_(panel_data, u, dz_c, alpha, beta):
@@ -1300,35 +1482,55 @@ def plot_distribution_all(fig, vlm, quantity='CL'):
 
 def plot_coefficient_vs_alpha(fig, self, coefficient='CL', title=None):
     """
-    Plot CL or CD vs angle of attack using precomputed results.
-    Calculates and displays the slope (pendiente) of the line (in radians).
+    Plot a precomputed aerodynamic coefficient against angle of attack.
+    Calculates and displays the coefficient slope per radian.
 
     Parameters:
-    - coefficient: 'CL' or 'CD'
+    - coefficient: An integrated force or moment coefficient in self.results
     - title: Optional title for the plot
 
     Returns:
     - fig: Plotly Figure object
     """
-    if coefficient not in self.results:
+    if not self.results or coefficient not in self.results:
         raise ValueError(f"'{coefficient}' not found in results.")
 
     x_deg = np.array(self.results['angles_deg'])
     y = np.array(self.results[coefficient])
     x_rad = np.radians(x_deg)
+    if x_rad.size < 2 or np.ptp(x_rad) == 0:
+        raise ValueError('At least two distinct angle-of-attack values are required')
 
     # Calculate the slope (pendiente) using linear regression in radians
     slope_rad, intercept = np.polyfit(x_rad, y, 1)
 
+    coefficient_labels = {
+        'CL': 'Lift coefficient',
+        'CD': 'Induced drag coefficient',
+        'CX': 'X-force coefficient',
+        'CY': 'Y-force coefficient',
+        'CZ': 'Z-force coefficient',
+        'Cl': 'Roll-moment coefficient',
+        'Cm': 'Pitch-moment coefficient',
+        'Cn': 'Yaw-moment coefficient',
+    }
+    if coefficient not in coefficient_labels:
+        raise ValueError(f"Unsupported aerodynamic coefficient: '{coefficient}'")
+
     if title is None:
-        title = f"{'Lift' if coefficient == 'CL' else 'Drag'} Coefficient vs Angle of Attack"
+        title = f'{coefficient_labels[coefficient]} vs angle of attack'
+    colors = {
+        'CL': '#0072b2', 'CD': '#d55e00', 'CX': '#e69f00',
+        'CY': '#009e73', 'CZ': '#56b4e9', 'Cl': '#cc79a7',
+        'Cm': '#f0e442', 'Cn': '#332288',
+    }
 
     fig.add_trace(go.Scatter(
         x=x_deg,
         y=y,
         mode='lines+markers',
         name=coefficient,
-        line=dict(color='blue'),
+        line=dict(color=colors[coefficient]),
         marker=dict(size=8)
     ))
 
@@ -1336,7 +1538,7 @@ def plot_coefficient_vs_alpha(fig, self, coefficient='CL', title=None):
     fig.add_annotation(
         xref='paper', yref='paper',
         x=0.05, y=0.95,
-        text=f"Slope (rad): {slope_rad:.4f}",
+        text=f"Slope per radian: {slope_rad:.4f}",
         showarrow=False,
         font=dict(size=14, color='red'),
         bgcolor='white'

@@ -66,6 +66,7 @@ from lib.vlm import (
 )
 from lib.naca import plot_naca_airfoil, naca_csv
 from lib.naca import naca_airfoil
+from lib.panel2d import solve_airfoil_panels
 from lib.geometry_serialization import serialize_airfoil, serialize_panel_geometry
 from lib.geometry import (
     plot_wing_geometry, plot_wing_geometry_2d,
@@ -177,6 +178,7 @@ thread_pool = ThreadPoolExecutor(max_workers=CPU_COUNT)
 # Global state (with locks)
 vlm_sessions: Dict[str, VLM] = {}
 vlm_sessions_lock = Lock()
+vlm_session_generations: Dict[str, int] = {}
 
 default_cache: Dict[str, Any] = {}
 sessions_lock = Lock()  # for short duration disk writes / critical sections
@@ -312,24 +314,25 @@ def _interpolate_custom_airfoil(data: dict[str, Any], point_count: int) -> tuple
     return np.concatenate((x_grid[::-1], x_grid[1:])), np.concatenate((upper_z[::-1], lower_z[1:]))
 
 # VLM: helper to create, save, and store in global dict
-def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str) -> dict:
+def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str, generation: int) -> dict:
     try:
         vlm = VLM(plane, u, rho, alpha, beta, n, m)
-        # operación que depende de VLM
-        vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
-        #timestamp = datetime.now().strftime("%d%m%y%H%M%S")
-        #state_path = SAVED_STATES / f"{session_id}_{timestamp}.pkl"
-        #vlm.save_state(str(state_path))
         with vlm_sessions_lock:
+            if vlm_session_generations.get(session_id, 0) != generation:
+                return {"status": "cancelled", "message": "Calculation invalidated by plane reset."}
+            vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
             vlm_sessions[session_id] = vlm
         return {"status": "success", "message": "Wing design computed."}
     except Exception as e:
         logger.exception("VLM computation error")
         return {"status": "error", "message": f"VLM computation failed: {e}"}
 
-def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None):
+def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None, generation: Optional[int] = None):
     # Envía el trabajo a thread_pool y espera el resultado (manteniendo la API existente)
-    future = thread_pool.submit(_vlm_create_and_save, plane, u, rho, alpha, beta, n, m, session_id)
+    if generation is None:
+        with vlm_sessions_lock:
+            generation = vlm_session_generations.get(session_id, 0)
+    future = thread_pool.submit(_vlm_create_and_save, plane, u, rho, alpha, beta, n, m, session_id, generation)
     try:
         return future.result(timeout=timeout)
     except Exception as e:
@@ -434,6 +437,8 @@ def plane_route():
             if not session_id:
                 logger.error("Session ID missing in /wing POST")
                 return jsonify({"status": "error", "message": "Session ID missing"}), 400
+            with vlm_sessions_lock:
+                request_generation = vlm_session_generations.get(session_id, 0)
 
             plane = _parse_wing_form(form)
             u = safe_float(form.get("u", 50.0))
@@ -464,9 +469,12 @@ def plane_route():
             logger.info(f"Submitting VLM computation for session: {session_id}")
 
             # Execute VLM computation asynchronously but wait for result here
-            result = compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id)
+            result = compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id,
+                                       generation=request_generation)
             logger.info(f"VLM computation result: {result.keys() if isinstance(result, dict) else result}, vlm_sessions keys: {list(vlm_sessions.keys())}")
 
+            if result.get("status") == "cancelled":
+                return jsonify(result), 409
             return jsonify(result), 200 if result.get("status") == "success" else 500
 
         except ValueError as e:
@@ -476,7 +484,29 @@ def plane_route():
             logger.exception("Error in /wing")
             return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
 
-    return render_template("wing.html", default_plane=default_plane, default_parameters=default_parameters)
+    saved_config = None
+    with vlm_sessions_lock:
+        session_vlm = vlm_sessions.get(session.get("session_id"))
+    if session_vlm is not None and session_vlm.plane.get("wing_sections"):
+        saved_config = session_vlm.export_configuration(include_flight=True)
+        saved_config["angle_unit"] = "rad"
+    initial_plane = saved_config or {**default_plane, "angle_unit": "deg"}
+
+    response = make_response(render_template("wing.html", default_plane=default_plane,
+                                             default_parameters=default_parameters,
+                                             initial_plane=initial_plane))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@app.route("/api/reset_plane", methods=["POST"])
+@session_required
+def reset_plane():
+    session_id = session.get("session_id")
+    with vlm_sessions_lock:
+        vlm_session_generations[session_id] = vlm_session_generations.get(session_id, 0) + 1
+        removed = vlm_sessions.pop(session_id, None) is not None
+    logger.info("Plane reset confirmed for session %s; VLM removed: %s", session_id, removed)
+    return jsonify({"status": "success", "removed": removed})
 
 @app.route("/angles", methods=["POST"])
 @session_required
@@ -500,7 +530,12 @@ def angles():
         if vlm.results is None or 'CL' not in vlm.results or 'CD' not in vlm.results:
             return jsonify({"status": "error", "message": "Failed to compute coefficients"}), 500
 
-        return jsonify({"status": "success", "message": "Coefficients computed successfully"}), 200
+        results = json.loads(json.dumps(vlm.results, default=float))
+        return jsonify({
+            "status": "success",
+            "message": "Coefficients computed successfully",
+            "results": results,
+        }), 200
 
     except Exception as e:
         logger.exception("Error in /angles")
@@ -541,6 +576,14 @@ def results():
 
         cl = f"{vlm.CL:.4f}" if getattr(vlm, 'CL', None) is not None else "--"
         cd = f"{vlm.CD:.4f}" if getattr(vlm, 'CD', None) is not None else "--"
+        force_coefficients = {
+            key: f"{float(vlm.force_coefficients[key]):.5f}"
+            for key in ('CX', 'CY', 'CZ')
+        }
+        moment_coefficients = {
+            key: f"{float(vlm.moment_coefficients[key]):.5f}"
+            for key in ('Cl', 'Cm', 'Cn')
+        }
         total_lift = f"{vlm.lift:.2f}" if getattr(vlm, 'lift', None) is not None else "--"
         total_drag = f"{vlm.drag:.2f}" if getattr(vlm, 'drag', None) is not None else "--"
         wing_lift = f"{wing_lift_total:.2f}" if wing_lift_total is not None else "--"
@@ -551,11 +594,33 @@ def results():
             "results.html",
             cl=cl, cd=cd, total_lift=total_lift, total_drag=total_drag,
             wing_lift=wing_lift, hs_lift=hs_lift, vs_lift=vs_lift,
+            force_coefficients=force_coefficients,
+            moment_coefficients=moment_coefficients,
             results=vlm.results
         )
     except Exception as e:
         logger.exception("Error in /results")
         return jsonify({"status": "error", "message": f"Exception: {e}"}), 500
+
+@app.route('/api/aerodynamics/derivatives', methods=['POST'])
+@session_required
+def calculate_aerodynamic_derivatives_api():
+    try:
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({'status': 'error', 'message': 'No active VLM session'}), 400
+        request_data = request.get_json(silent=True) or {}
+        step_deg = float(request_data.get('step_deg', 0.1))
+        derivatives = vlm.calculate_static_derivatives(step_deg=step_deg)
+        derivatives = json.loads(json.dumps(derivatives, default=float))
+        return jsonify({'status': 'success', 'derivatives': derivatives})
+    except (TypeError, ValueError) as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+    except Exception as e:
+        logger.exception('Error calculating aerodynamic derivatives')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/plot/airfoil', methods=['POST'])
 @session_required
@@ -607,6 +672,29 @@ def airfoil_preview():
         return jsonify({'status': 'error', 'message': str(exc)}), 400
     except Exception as exc:
         logger.exception('Error generating airfoil preview')
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
+
+
+@app.route('/api/airfoil/panel', methods=['POST'])
+@session_required
+def airfoil_panel_solution():
+    """2D panel-method solution (Hess-Smith sources or doublets) for a NACA 4-digit airfoil."""
+    try:
+        data = request.get_json(silent=True) or {}
+        result = solve_airfoil_panels(
+            _validate_naca_code(data.get('naca', '2412')),
+            safe_float(data.get('chord', 1.0), 1.0),
+            safe_float(data.get('alpha', 0.0), 0.0),
+            safe_float(data.get('u', 1.0), 1.0),
+            safe_int(data.get('n_panels', 100), 100),
+            str(data.get('method', 'source')),
+            bool(data.get('field', True)),
+        )
+        return jsonify({'status': 'success', **result})
+    except (TypeError, ValueError, np.linalg.LinAlgError) as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.exception('Error solving airfoil panel method')
         return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 
@@ -1048,6 +1136,12 @@ def plot_data(plot_type):
             'CL_CD': lambda: plot_CL_CD(fig, vlm, title='CL vs CD of the Wing'),
             'CL-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CL') if vlm.results and 'CL' in vlm.results else None,
             'CD-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CD') if vlm.results and 'CD' in vlm.results else None,
+            'CX-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CX') if vlm.results and 'CX' in vlm.results else None,
+            'CY-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CY') if vlm.results and 'CY' in vlm.results else None,
+            'CZ-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CZ') if vlm.results and 'CZ' in vlm.results else None,
+            'Cl-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cl') if vlm.results and 'Cl' in vlm.results else None,
+            'Cm-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cm') if vlm.results and 'Cm' in vlm.results else None,
+            'Cn-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cn') if vlm.results and 'Cn' in vlm.results else None,
             'CL-CD-alpha': lambda: plot_CLCD_vs_alpha(fig, vlm, title=None) if vlm.results and 'CL' in vlm.results and 'CD' in vlm.results else None,
             'LiftSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='lift'),
             'DragSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='drag')
@@ -1060,7 +1154,10 @@ def plot_data(plot_type):
         fig_result = plot_func()
         if fig_result is None:
             # Specific error for missing coefficients
-            if plot_type in ('CL-alpha', 'CD-alpha', 'CL-CD-alpha'):
+            if plot_type in (
+                'CL-alpha', 'CD-alpha', 'CX-alpha', 'CY-alpha', 'CZ-alpha',
+                'Cl-alpha', 'Cm-alpha', 'Cn-alpha', 'CL-CD-alpha'
+            ):
                 return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
             return jsonify({"status": "error", "message": "Plot data unavailable"}), 400
 
@@ -1194,10 +1291,12 @@ def apply_plane_config():
         if vlm is None:
             return jsonify({'status': 'error', 'message': 'No active VLM session'}), 400
         vlm.apply_configuration(config, include_flight=True)
+        config_out = vlm.export_configuration(include_flight=True)
+        config_out['angle_unit'] = 'rad'
         return jsonify({
             'status': 'success',
             'message': 'Plane configuration applied; previous results cleared',
-            'config': vlm.export_configuration(include_flight=True)
+            'config': config_out
         })
     except Exception as e:
         logger.exception('Error applying plane configuration')
@@ -1476,6 +1575,7 @@ def validate_airfoil_config():
 if __name__ == "__main__":
     optimize_resources()
     try:
+        logger.info("Starting VLMPy Flask server at http://localhost:5001 (pid=%s)", os.getpid())
         app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
         #ui.run()
     finally:

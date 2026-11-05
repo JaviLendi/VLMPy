@@ -179,6 +179,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // Keep the current camera and reuse the existing Plotly scene.
             plotData.layout.uirevision = filename || endpoint;
             plotData.layout.autosize = true;
+            plotData.layout.paper_bgcolor = 'rgba(0,0,0,0)';
+            plotData.layout.plot_bgcolor = 'rgba(0,0,0,0)';
+            if (plotData.layout.scene) {
+                plotData.layout.scene.bgcolor = 'rgba(0,0,0,0)';
+            }
             const plotIsMounted = DOM.plotArea.classList.contains('js-plotly-plot')
                 && DOM.plotArea._fullLayout;
             const plotPromise = plotIsMounted
@@ -233,6 +238,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // =================== DYNAMIC SECTIONS MANAGEMENT ===================
+    const refreshWingPreview = () => {
+        if (typeof window.renderWingPreview === 'function') {
+            window.renderWingPreview();
+        }
+    };
+
     const toggleElement = (element, button, hiddenInput, isFlap = false) => {
         if (!button || !element || !hiddenInput) {
             console.error(`Toggle${isFlap ? 'Flap' : 'Section'}: Element, button, or hidden input not found`);
@@ -265,12 +276,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Global toggle functions
     window.toggleFlap = (button) => {
         toggleElement(button.nextElementSibling, button, button.previousElementSibling, true);
+        refreshWingPreview();
     };
 
     window.toggleSection = (sectionId, buttonSelector) => {
         const section = document.getElementById(sectionId);
         const button = document.querySelector(buttonSelector);
         toggleElement(section, button, button.previousElementSibling);
+        refreshWingPreview();
     };
 
     // =================== WING SECTION MANAGEMENT ===================
@@ -351,6 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         sections.appendChild(sectionDiv);
         sectionDiv.style.transition = 'opacity 0.3s';
+        refreshWingPreview();
 
         const newButton = sectionDiv.querySelector(`#aileron-${sectionNumber}`);
         if (newButton) {
@@ -374,6 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lastSection.style.opacity = '0';
         setTimeout(() => {
             sections.removeChild(lastSection);
+            refreshWingPreview();
             console.log('Section removed');
         }, 300);
     };

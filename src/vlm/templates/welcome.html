@@ -1,43 +1,40 @@
 {% extends "base.html" %}
+{% block body_attrs %} class="welcome-page"{% endblock %}
 {% block content %}
 <div class="welcome-container">
     <!-- Hero Section -->
     <section class="landing-hero">
         <div class="landing-hero-left">
-            <span class="eyebrow">Optimized for research and teaching</span>
-            <h2 class="hero-title">Simulate, visualize, and learn aerodynamics <br> with instant results.</h2>
-            <p class="hero-subtitle">Modern interface, SVG export, and tools to compare VLM with experimental data — all designed for students and developers.</p>
+            <span class="eyebrow">AERODYNAMICS · NUMERICAL METHODS</span>
+            <h2 class="hero-title">From wing geometry<br>to <em>aerodynamic insight.</em></h2>
+            <p class="hero-subtitle">Build aircraft geometries, run vortex lattice analyses, and inspect the aerodynamics behind every result.</p>
 
             <div class="landing-hero-ctas">
-                <a class="landing-btn primary" href="/airfoil">Run analysis</a>
-                <a class="landing-btn secondary" href="https://github.com/JaviLendi/VLMPy" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+                <a class="landing-btn primary" href="/airfoil">Run an analysis <span aria-hidden="true">↗</span></a>
+                <a class="landing-btn secondary" href="https://github.com/JaviLendi/VLMPy" target="_blank" rel="noopener noreferrer">Explore on GitHub</a>
             </div>
 
             <div class="landing-hero-meta">
-                <div class="landing-badge">Open Source</div>
-                <div class="meta-text">Compatibility: Python · Windows 11 APP</div>
+                <div class="landing-badge"><i aria-hidden="true"></i>OPEN SOURCE</div>
+                <div class="meta-text">Python · Research · Education</div>
             </div>
         </div>
 
         <aside class="landing-hero-right">
             <div class="landing-preview-card">
                 <div class="landing-preview-header">
-                    <strong>Quick preview</strong>
-                    <small>SVG · Export</small>
+                    <strong>WING / SWEPT TAPERED</strong>
+                    <small>3D PANEL MESH</small>
                 </div>
 
                 <div class="landing-preview-content">
-                    <div style="display:flex;gap:0.6rem;align-items:center">
-                        <div style="flex:1">
-                            <div class="landing-line" style="width:85%"></div>
-                            <div class="landing-line" style="width:95%"></div>
-                            <div class="landing-line" style="width:70%"></div>
-                            <div class="landing-line" style="width:90%"></div>
-                        </div>
-                    </div>
-                    <div style="margin-top:1rem;font-size:0.85rem;color:var(--landing-muted)">
-                        <i class="fas fa-check-circle" style="color:var(--success-color)"></i> Real-time analysis
-                    </div>
+                    <canvas class="wing-mesh-canvas" aria-label="Interactive three-dimensional model of a swept, tapered wing with an aileron and its panel mesh" role="img"></canvas>
+                    <div class="wing-mesh-axis" aria-hidden="true"><span>Y</span><i></i><span>X</span></div>
+                    <div class="wing-mesh-label" aria-hidden="true">b 8.0 m · SWEEP 30° · c 1.00 → 0.30 m · AILERON</div>
+                </div>
+                <div class="landing-preview-footer">
+                    <span><i aria-hidden="true"></i> GEOMETRY READY</span>
+                    <span>DRAG TO ROTATE</span>
                 </div>
             </div>
         </aside>
@@ -121,36 +118,196 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Close sidebar when clicking overlay
-    if (overlay) {
-        overlay.addEventListener('click', function() {
-            sidebar.classList.remove('active');
-            overlay.classList.remove('active');
-            if (landingMenuToggle) {
-                landingMenuToggle.setAttribute('aria-expanded', 'false');
-            }
-        });
-    }
-
-    // Mark page as welcome-page for special styles
     document.body.classList.add('welcome-page');
 
-    // Smooth parallax effect for hero
-    let ticking = false;
-    window.addEventListener('scroll', function() {
-        if (!ticking) {
-            window.requestAnimationFrame(function() {
-                const scrolled = window.pageYOffset;
-                const hero = document.querySelector('.landing-hero');
-                if (hero && scrolled < 800) {
-                    hero.style.transform = `translateY(${scrolled * 0.1}px)`;
-                    hero.style.opacity = 1 - (scrolled * 0.001);
-                }
-                ticking = false;
-            });
-            ticking = true;
+    const canvas = document.querySelector('.wing-mesh-canvas');
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    // Geometry of saved_configs/complete.json; span_fraction is the full span, so the half-span is 4 m.
+    const WING = {
+        halfSpan: 4, chordRoot: 1, chordTip: 0.3,
+        sweep: 0.5235987755982988, dihedral: 0.06981317007977318,
+        root: {m: 0.03, p: 0.2, t: 0.15}, tip: {m: 0.01, p: 0.3, t: 0.1},
+        aileron: {start: 0.6, end: 0.9, hinge: 0.5}
+    };
+    const SPAN_PANELS = 24;
+    const CHORD_PANELS = 10;
+    const CENTER = [1.3, 0, 0.1];
+    const LIGHT = [-0.35, 0.25, 0.9];
+    const CAMERA_DISTANCE = 14;
+
+    let yawBase = -1.25;
+    let elevation = 0.55;
+    let swayTime = 0;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    let frameId;
+
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const panels = buildPanels();
+
+    function airfoilPoint({m, p, t}, x, upper) {
+        const thickness = 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x ** 2 + 0.2843 * x ** 3 - 0.1036 * x ** 4);
+        let camber = 0;
+        let slope = 0;
+        if (m && p) {
+            if (x < p) {
+                camber = m / p ** 2 * (2 * p * x - x * x);
+                slope = 2 * m / p ** 2 * (p - x);
+            } else {
+                camber = m / (1 - p) ** 2 * (1 - 2 * p + 2 * p * x - x * x);
+                slope = 2 * m / (1 - p) ** 2 * (p - x);
+            }
         }
+        const theta = Math.atan(slope);
+        const side = upper ? 1 : -1;
+        return [x - side * thickness * Math.sin(theta), camber + side * thickness * Math.cos(theta)];
+    }
+
+    function buildPanels() {
+        const stations = Array.from({length: CHORD_PANELS + 1}, (_, k) => (1 - Math.cos(Math.PI * k / CHORD_PANELS)) / 2);
+        const result = [];
+        const section = (eta, side, upper) => {
+            const y = side * eta * WING.halfSpan;
+            const params = {m: lerp(WING.root.m, WING.tip.m, eta), p: lerp(WING.root.p, WING.tip.p, eta), t: lerp(WING.root.t, WING.tip.t, eta)};
+            const chord = lerp(WING.chordRoot, WING.chordTip, eta);
+            const leadingEdge = Math.tan(WING.sweep) * Math.abs(y);
+            const rise = Math.sin(WING.dihedral) * Math.abs(y);
+            return stations.map(x => {
+                const [px, pz] = airfoilPoint(params, x, upper);
+                return [leadingEdge + chord * px, y, rise + chord * pz];
+            });
+        };
+        for (const side of [1, -1]) {
+            for (const upper of [true, false]) {
+                let previous = section(0, side, upper);
+                for (let i = 1; i <= SPAN_PANELS; i += 1) {
+                    const eta = i / SPAN_PANELS;
+                    const current = section(eta, side, upper);
+                    const etaMid = eta - 0.5 / SPAN_PANELS;
+                    for (let j = 0; j < CHORD_PANELS; j += 1) {
+                        const points = [previous[j], previous[j + 1], current[j + 1], current[j]];
+                        const [a, b, c, d] = points;
+                        const u = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                        const v = [d[0] - b[0], d[1] - b[1], d[2] - b[2]];
+                        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                        const shade = Math.abs(n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / ((Math.hypot(...n) || 1) * Math.hypot(...LIGHT));
+                        const chordMid = (stations[j] + stations[j + 1]) / 2;
+                        const aileron = etaMid >= WING.aileron.start && etaMid <= WING.aileron.end && chordMid >= WING.aileron.hinge;
+                        result.push({points, shade, aileron});
+                    }
+                    previous = current;
+                }
+            }
+        }
+        return result;
+    }
+
+    function parseColor(value, fallback) {
+        const hex = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+        if (hex) {
+            const digits = hex[1].length === 3 ? hex[1].split('').map(c => c + c).join('') : hex[1];
+            return [0, 2, 4].map(i => parseInt(digits.slice(i, i + 2), 16));
+        }
+        const channels = value.match(/\d+(\.\d+)?/g);
+        return channels && channels.length >= 3 ? channels.slice(0, 3).map(Number) : fallback;
+    }
+
+    const cssColor = (name, fallback) => parseColor(getComputedStyle(document.documentElement).getPropertyValue(name), fallback);
+    const mix = (a, b, t) => a.map((value, i) => Math.round(value + (b[i] - value) * t));
+    const rgb = color => `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+
+    function draw() {
+        const bounds = canvas.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return;
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const pixelWidth = Math.round(bounds.width * pixelRatio);
+        const pixelHeight = Math.round(bounds.height * pixelRatio);
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+            canvas.width = pixelWidth;
+            canvas.height = pixelHeight;
+        }
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, bounds.width, bounds.height);
+
+        const background = cssColor('--primary-bg', [10, 16, 23]);
+        const accent = cssColor('--accent-color', [22, 136, 239]);
+        const warning = cssColor('--warning-color', [239, 183, 105]);
+        const yaw = yawBase + (motionPreference.matches ? 0 : Math.sin(swayTime) * 0.5);
+        const cosYaw = Math.cos(yaw);
+        const sinYaw = Math.sin(yaw);
+        const cosElevation = Math.cos(elevation);
+        const sinElevation = Math.sin(elevation);
+        const scale = Math.min(bounds.width / 8.6, bounds.height / 3.9);
+
+        const transform = ([x, y, z]) => {
+            const px = x - CENTER[0];
+            const pz = z - CENTER[2];
+            const lateral = px * cosYaw + y * sinYaw;
+            const farther = -px * sinYaw + y * cosYaw;
+            const distance = farther * cosElevation - pz * sinElevation;
+            const perspective = CAMERA_DISTANCE / (CAMERA_DISTANCE + distance);
+            return {
+                x: bounds.width / 2 + lateral * scale * perspective,
+                y: bounds.height / 2 - (pz * cosElevation + farther * sinElevation) * scale * perspective,
+                depth: distance
+            };
+        };
+
+        const projected = panels.map(panel => {
+            const points = panel.points.map(transform);
+            return {panel, points, depth: (points[0].depth + points[1].depth + points[2].depth + points[3].depth) / 4};
+        }).sort((a, b) => b.depth - a.depth);
+
+        context.lineJoin = 'round';
+        context.lineWidth = 0.7;
+        for (const {panel, points} of projected) {
+            const base = panel.aileron ? warning : accent;
+            context.fillStyle = rgb(mix(background, base, 0.16 + 0.5 * panel.shade));
+            context.strokeStyle = rgb(mix(background, base, panel.aileron ? 0.95 : 0.7));
+            context.beginPath();
+            context.moveTo(points[0].x, points[0].y);
+            for (let k = 1; k < 4; k += 1) context.lineTo(points[k].x, points[k].y);
+            context.closePath();
+            context.fill();
+            context.stroke();
+        }
+    }
+
+    function animate() {
+        if (!dragging) swayTime += 0.012;
+        draw();
+        if (!motionPreference.matches) frameId = window.requestAnimationFrame(animate);
+    }
+
+    canvas.addEventListener('pointerdown', event => {
+        dragging = true;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
     });
+    canvas.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        yawBase += (event.clientX - lastX) * 0.008;
+        elevation = Math.max(0.1, Math.min(1.3, elevation + (event.clientY - lastY) * 0.006));
+        lastX = event.clientX;
+        lastY = event.clientY;
+        draw();
+    });
+    canvas.addEventListener('pointerup', () => { dragging = false; });
+    canvas.addEventListener('pointercancel', () => { dragging = false; });
+    window.addEventListener('resize', draw);
+    new MutationObserver(draw).observe(document.documentElement, {attributes: true, attributeFilter: ['class']});
+    motionPreference.addEventListener('change', () => {
+        if (frameId) window.cancelAnimationFrame(frameId);
+        frameId = null;
+        animate();
+    });
+    animate();
 });
 </script>
 {% endblock %}

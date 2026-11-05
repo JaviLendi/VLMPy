@@ -9,7 +9,9 @@ __pycache__/
 htmlcov/
 
 # Local VLM caches and generated runtime data
-src/vlm/data/cache_*.txt
+src/vlm/data/cache_*
+src/vlm/data/plane_variables.txt
+src/vlm/data/saved_airfoils/
 src/vlm/data/saved_configs/
 src/vlm/data/saved_states/
 src/vlm/temp_stl/
@@ -27,6 +29,8 @@ env/
 !.env.example
 .vscode/
 .idea/
+.github/
+.azure
 .github/agents/shared-references/service-abstraction.md
 .github/agents/shared-references/seed-data.md
 .github/agents/shared-references/runtimes/typescript.md

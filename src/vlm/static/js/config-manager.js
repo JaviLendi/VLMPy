@@ -29,7 +29,7 @@ class UnifiedConfigManager {
                             <div style="display:flex;flex-direction:column;gap:0.5rem;width:100%">
                                 <div style="display:flex;align-items:center;justify-content:space-between;">
                                     <h3 class="modal-title">${title}</h3>
-                                    <button class="modal-close" data-action="close" aria-label="Close"><i class="fa fa-xmark"></i></button>
+                                    <button type="button" class="modal-close" data-action="close" aria-label="Close"><i class="fa fa-xmark" aria-hidden="true"></i></button>
                                 </div>
                                 ${headerExtra}
                             </div>
@@ -76,6 +76,143 @@ class UnifiedConfigManager {
                     </form>
                 `;
             },
+            airfoilThumbnailSVG: (cfg) => {
+                const code = String(cfg.naca || '0012').replace(/\D/g, '').padStart(4, '0').slice(-4);
+                const camber = Number(code[0]) / 100;
+                const position = Number(code[1]) / 10;
+                const thickness = Math.min(Math.max(Number(code.slice(2)) / 100, 0.02), 0.3);
+                const upper = [];
+                const lower = [];
+                const camberLine = [];
+                const samples = 32;
+                for (let index = 0; index <= samples; index += 1) {
+                    const fraction = (1 - Math.cos(Math.PI * index / samples)) / 2;
+                    const thicknessLine = 5 * thickness * (
+                        0.2969 * Math.sqrt(fraction) - 0.1260 * fraction
+                        - 0.3516 * fraction ** 2 + 0.2843 * fraction ** 3
+                        - 0.1036 * fraction ** 4
+                    );
+                    let camberHeight = 0;
+                    let camberSlope = 0;
+                    if (camber && position && fraction <= position) {
+                        camberHeight = camber / position ** 2 * (2 * position * fraction - fraction ** 2);
+                        camberSlope = 2 * camber / position ** 2 * (position - fraction);
+                    } else if (camber && position) {
+                        camberHeight = camber / (1 - position) ** 2 * (1 - 2 * position + 2 * position * fraction - fraction ** 2);
+                        camberSlope = 2 * camber / (1 - position) ** 2 * (position - fraction);
+                    }
+                    const angle = Math.atan(camberSlope);
+                    const upperX = 16 + (fraction - thicknessLine * Math.sin(angle)) * 148;
+                    const lowerX = 16 + (fraction + thicknessLine * Math.sin(angle)) * 148;
+                    upper.push(`${upperX.toFixed(2)},${(36 - (camberHeight + thicknessLine * Math.cos(angle)) * 210).toFixed(2)}`);
+                    lower.unshift(`${lowerX.toFixed(2)},${(36 - (camberHeight - thicknessLine * Math.cos(angle)) * 210).toFixed(2)}`);
+                    camberLine.push(`${(16 + fraction * 148).toFixed(2)},${(36 - camberHeight * 210).toFixed(2)}`);
+                }
+                const outline = upper.concat(lower).join(' ');
+                return `<svg class="config-thumbnail-svg airfoil-thumbnail-svg" viewBox="0 0 180 72" role="img" aria-label="NACA ${code} airfoil profile" focusable="false">
+                    <path class="config-thumbnail-grid" d="M12 18H168 M12 36H168 M12 54H168" />
+                    <polygon class="airfoil-thumbnail-shape" points="${outline}" />
+                    <polyline class="airfoil-thumbnail-camber" points="${camberLine.join(' ')}" />
+                </svg>`;
+            },
+            wingThumbnailSVG: (cfg) => {
+                const inputSections = cfg.wing_sections_preview || cfg.wing_sections || cfg.wingsections || [];
+                const sections = (Array.isArray(inputSections) ? inputSections : []).map(section => {
+                    const rootChord = Number(section.chord_root ?? section.chordroot);
+                    const tipChord = Number(section.chord_tip ?? section.chordtip);
+                    const span = Math.abs(Number(section.span_fraction ?? section.spanfraction));
+                    const rawSweep = Number(section.sweep) || 0;
+                    const sweep = Math.abs(rawSweep) <= Math.PI * 2 ? rawSweep : rawSweep * Math.PI / 180;
+                    return {
+                        rootChord: Number.isFinite(rootChord) && rootChord > 0 ? rootChord : 1,
+                        tipChord: Number.isFinite(tipChord) && tipChord > 0 ? tipChord : 0.6,
+                        span: Number.isFinite(span) && span > 0 ? span / 2 : 0.5,
+                        sweep: Math.max(-1.2, Math.min(1.2, sweep)),
+                    };
+                });
+                if (!sections.length) sections.push({rootChord: 1, tipChord: 0.65, span: 0.5, sweep: 0});
+
+                let spanPosition = 0;
+                let leadingEdge = 0;
+                const geometry = sections.map(section => {
+                    const nextSpan = spanPosition + section.span;
+                    const nextLeadingEdge = leadingEdge + Math.tan(section.sweep) * section.span;
+                    const segment = {
+                        rootSpan: spanPosition,
+                        tipSpan: nextSpan,
+                        rootLeadingEdge: leadingEdge,
+                        tipLeadingEdge: nextLeadingEdge,
+                        rootChord: section.rootChord,
+                        tipChord: section.tipChord,
+                    };
+                    spanPosition = nextSpan;
+                    leadingEdge = nextLeadingEdge;
+                    return segment;
+                });
+
+                const chordCoordinates = geometry.flatMap(section => [
+                    section.rootLeadingEdge,
+                    section.tipLeadingEdge,
+                    section.rootLeadingEdge + section.rootChord,
+                    section.tipLeadingEdge + section.tipChord,
+                ]);
+                const minChord = Math.min(...chordCoordinates);
+                const maxChord = Math.max(...chordCoordinates);
+                const chordCenter = (minChord + maxChord) / 2;
+                const vertices = geometry.flatMap(section => [
+                    [section.rootSpan, section.rootLeadingEdge],
+                    [section.tipSpan, section.tipLeadingEdge],
+                    [section.tipSpan, section.tipLeadingEdge + section.tipChord],
+                    [section.rootSpan, section.rootLeadingEdge + section.rootChord],
+                    [-section.rootSpan, section.rootLeadingEdge],
+                    [-section.tipSpan, section.tipLeadingEdge],
+                    [-section.tipSpan, section.tipLeadingEdge + section.tipChord],
+                    [-section.rootSpan, section.rootLeadingEdge + section.rootChord],
+                ]);
+                const minX = Math.min(...vertices.map(point => point[0]));
+                const maxX = Math.max(...vertices.map(point => point[0]));
+                const minY = Math.min(...vertices.map(point => point[1]));
+                const maxY = Math.max(...vertices.map(point => point[1]));
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
+                const scale = Math.min(168 / Math.max(maxX - minX, 0.01), 88 / Math.max(maxY - minY, 0.01));
+                const project = ([x, y]) => [90 + (x - centerX) * scale, 47 + (y - centerY) * scale];
+                const number = value => value.toFixed(2);
+                const panels = geometry.map(section => {
+                    const right = [
+                        [section.rootSpan, section.rootLeadingEdge],
+                        [section.tipSpan, section.tipLeadingEdge],
+                        [section.tipSpan, section.tipLeadingEdge + section.tipChord],
+                        [section.rootSpan, section.rootLeadingEdge + section.rootChord],
+                    ].map(project).map(([x, y]) => `${number(x)},${number(y)}`).join(' ');
+                    const left = [
+                        [-section.rootSpan, section.rootLeadingEdge],
+                        [-section.tipSpan, section.tipLeadingEdge],
+                        [-section.tipSpan, section.tipLeadingEdge + section.tipChord],
+                        [-section.rootSpan, section.rootLeadingEdge + section.rootChord],
+                    ].map(project).map(([x, y]) => `${number(x)},${number(y)}`).join(' ');
+                    return `<polygon class="wing-thumbnail-panel" points="${right}" /><polygon class="wing-thumbnail-panel" points="${left}" />`;
+                }).join('');
+                const ribs = geometry.map(section => {
+                    const station = (section.rootSpan + section.tipSpan) / 2;
+                    const fraction = (station - section.rootSpan) / (section.tipSpan - section.rootSpan || 1);
+                    const leading = section.rootLeadingEdge + (section.tipLeadingEdge - section.rootLeadingEdge) * fraction;
+                    const chord = section.rootChord + (section.tipChord - section.rootChord) * fraction;
+                    const rightStart = project([station, leading]).map(number).join(' ');
+                    const rightEnd = project([station, leading + chord]).map(number).join(' ');
+                    const leftStart = project([-station, leading]).map(number).join(' ');
+                    const leftEnd = project([-station, leading + chord]).map(number).join(' ');
+                    return `<path class="wing-thumbnail-rib" d="M${rightStart} L${rightEnd} M${leftStart} L${leftEnd}" />`;
+                }).join('');
+                const rootStart = project([0, geometry[0].rootLeadingEdge]).map(number).join(' ');
+                const rootEnd = project([0, geometry[0].rootLeadingEdge + geometry[0].rootChord]).map(number).join(' ');
+                return `<svg class="config-thumbnail-svg wing-thumbnail-svg" viewBox="0 0 180 94" role="img" aria-label="Wing planform with ${sections.length} section${sections.length === 1 ? '' : 's'}" focusable="false">
+                    <path class="config-thumbnail-grid" d="M10 23H170 M10 47H170 M10 71H170" />
+                    ${panels}
+                    ${ribs}
+                    <path class="wing-thumbnail-fuselage" d="M${rootStart} L${rootEnd}" />
+                </svg>`;
+            },
             configItemHTML: (type, cfg) => {
                 const filename = cfg.filename || (cfg.name ? `${cfg.name}.json` : 'unknown.json');
                 const safeFilename = this._escapeHTML(filename);
@@ -87,27 +224,11 @@ class UnifiedConfigManager {
                     const features = [];
                     if (cfg.has_airfoil) features.push('<span class="config-feature">Airfoil</span>');
                     if (cfg.has_coordinates) features.push('<span class="config-feature">Coordinates</span>');
-                    // small airfoil thumbnail generation (approximate from thickness or NACA)
-                    let thickness = 0.12;
-                    if (cfg.thickness) thickness = parseFloat(cfg.thickness) || thickness;
-                    else if (cfg.max_thickness) thickness = parseFloat(cfg.max_thickness) || thickness;
-                    else if (cfg.naca) {
-                        try { thickness = parseInt(String(cfg.naca).slice(-2)) / 100; } catch(e) {}
-                    }
-                    thickness = Math.min(Math.max(thickness, 0.02), 0.35);
-                    const up = [];
-                    const low = [];
-                    for (let i=0;i<=20;i++){
-                        const x = (i/20)*100;
-                        const s = Math.sin(Math.PI*(i/20));
-                        const yOff = thickness*20*Math.pow(s,1.6);
-                        up.push(`${x},${20 - yOff}`);
-                        low.unshift(`${x},${20 + yOff}`);
-                    }
-                    const polygonPts = up.concat(low).join(' ');
-                    // removed thumbnail SVG: will use icon-only layout
+                    const thumbnail = this.templates.airfoilThumbnailSVG(cfg);
                     return `
                         <div class="config-item card airfoil-card" data-filename="${safeFilename}">
+                            <input class="config-selection-control" type="checkbox" aria-label="Select airfoil ${this._escapeHTML(filename.replace('.json',''))}">
+                            <div class="card-left"><div class="card-thumb config-thumbnail">${thumbnail}</div></div>
                             <div class="card-body config-info">
                                 <div class="config-header"><h4 class="config-name">${this._escapeHTML(filename.replace('.json',''))}</h4><div class="config-meta"><small>Modified: ${modified} • ${sizeKB}</small></div></div>
                                 <div class="config-meta"><small>${airfoilMeta || 'Airfoil configuration'}</small></div>
@@ -115,8 +236,8 @@ class UnifiedConfigManager {
                                 ${desc}
                             </div>
                                 <div class="config-actions">
-                                <button class="btn btn-sm btn-primary" title="Load this airfoil configuration" data-tooltip="Load this airfoil configuration" data-action="load" data-filename="${safeFilename}" data-type="airfoil"><span class="material-symbols-outlined" aria-hidden>download</span></button>
-                                <button class="btn btn-sm btn-danger" title="Delete this airfoil configuration" data-tooltip="Delete this airfoil configuration" data-action="delete" data-filename="${safeFilename}" data-type="airfoil"><span class="material-symbols-outlined" aria-hidden>delete</span></button>
+                                <button class="btn btn-sm btn-primary" title="Load this airfoil configuration" aria-label="Load airfoil configuration" data-tooltip="Load this airfoil configuration" data-action="load" data-filename="${safeFilename}" data-type="airfoil"><span class="material-symbols-outlined" aria-hidden="true" focusable="false">download</span></button>
+                                <button class="btn btn-sm btn-danger" title="Delete this airfoil configuration" aria-label="Delete airfoil configuration" data-tooltip="Delete this airfoil configuration" data-action="delete" data-filename="${safeFilename}" data-type="airfoil"><span class="material-symbols-outlined" aria-hidden="true" focusable="false">delete</span></button>
                             </div>
                         </div>
                     `;
@@ -126,10 +247,12 @@ class UnifiedConfigManager {
                 const nameDisplay = this._escapeHTML(cfg.name ? cfg.name : filename.replace('.json',''));
                 const descriptionDesc = cfg.description ? this._escapeHTML(cfg.description) : 'no description';
                 const sectionCount = cfg.wing_sections_count || 0;
+                const thumbnail = this.templates.wingThumbnailSVG(cfg);
                 return `
                     <div class="config-item card modern-card result-card" data-filename="${safeFilename}">
+                        <input class="config-selection-control" type="checkbox" aria-label="Select configuration ${nameDisplay}">
                         <div class="card-left">
-                            <div class="config-select" aria-hidden></div>
+                            <div class="card-thumb config-thumbnail">${thumbnail}</div>
                         </div>
                         <div class="card-body config-info">
                             <div class="config-row">
@@ -146,11 +269,11 @@ class UnifiedConfigManager {
                             <div class="config-features">${cfg.has_wing ? '<span class="config-feature">Wing</span>' : ''}${cfg.has_horizontal_stabilizer ? '<span class="config-feature">H-Stab</span>' : ''}${cfg.has_vertical_stabilizer ? '<span class="config-feature">V-Stab</span>' : ''}</div>
                         </div>
                         <div class="config-actions">
-                            <button class="btn btn-sm btn-primary" title="Load this plane configuration" data-tooltip="Load this plane configuration" data-action="load" data-filename="${safeFilename}" data-type="plane" aria-label="Load">
-                                <span class="material-symbols-outlined" aria-hidden>download</span>
+                            <button type="button" class="btn btn-sm btn-primary" title="Load this plane configuration" data-tooltip="Load this plane configuration" data-action="load" data-filename="${safeFilename}" data-type="plane" aria-label="Load plane configuration">
+                                <span class="material-symbols-outlined" aria-hidden="true" focusable="false">download</span>
                             </button>
-                            <button class="btn btn-sm btn-danger" title="Delete this plane configuration" data-tooltip="Delete this plane configuration" data-action="delete" data-filename="${safeFilename}" data-type="plane" aria-label="Delete">
-                                <span class="material-symbols-outlined" aria-hidden>delete</span>
+                            <button type="button" class="btn btn-sm btn-danger" title="Delete this plane configuration" data-tooltip="Delete this plane configuration" data-action="delete" data-filename="${safeFilename}" data-type="plane" aria-label="Delete plane configuration">
+                                <span class="material-symbols-outlined" aria-hidden="true" focusable="false">delete</span>
                             </button>
                         </div>
                     </div>
@@ -167,6 +290,7 @@ class UnifiedConfigManager {
                 const showFilename = displayName !== safeFilename.replace(/\.json$/i, '');
                 return `
                     <div class="config-item card modern-card result-card" data-filename="${safeFilename}">
+                        <div class="card-left config-select"><input class="config-selection-control" type="checkbox" aria-label="Select results ${displayName}"></div>
                         <div class="card-body config-info">
                             <div class="config-row">
                                 <div class="config-title">
@@ -180,11 +304,11 @@ class UnifiedConfigManager {
                             </div>
                         </div>
                         <div class="config-actions">
-                            <button class="btn btn-sm btn-primary" title="Load this results set" data-tooltip="Load this results set" data-action="load-results" data-filename="${safeFilename}" data-type="results" aria-label="Load results">
-                                <span class="material-symbols-outlined" aria-hidden>download</span>
+                            <button type="button" class="btn btn-sm btn-primary" title="Load this results set" data-tooltip="Load this results set" data-action="load-results" data-filename="${safeFilename}" data-type="results" aria-label="Load results">
+                                <span class="material-symbols-outlined" aria-hidden="true" focusable="false">download</span>
                             </button>
-                            <button class="btn btn-sm btn-danger" title="Delete this results set" data-tooltip="Delete this results set" data-action="delete-results" data-filename="${safeFilename}" data-type="results" aria-label="Delete results">
-                                <span class="material-symbols-outlined" aria-hidden>delete</span>
+                            <button type="button" class="btn btn-sm btn-danger" title="Delete this results set" data-tooltip="Delete this results set" data-action="delete-results" data-filename="${safeFilename}" data-type="results" aria-label="Delete results">
+                                <span class="material-symbols-outlined" aria-hidden="true" focusable="false">delete</span>
                             </button>
                         </div>
                     </div>`;
@@ -194,7 +318,7 @@ class UnifiedConfigManager {
                     if (type === 'results') return this.templates.resultItemHTML(item);
                     return this.templates.configItemHTML(type === 'airfoil' ? 'airfoil' : 'plane', item);
                 }).join('') : '<div class="empty-state">No items found.</div>';
-                return `<div class="unified-list modern"><div class="config-list">${body}</div></div>`;
+                return `<div class="unified-list modern"><div class="config-list">${body}<div class="config-search-empty" hidden>No matching items.</div></div></div>`;
             },
             configListHTML: (type, configs) => {
                 if (!configs || configs.length === 0) return '<div class="empty-state">No saved configurations found.</div>';
@@ -269,7 +393,7 @@ class UnifiedConfigManager {
         }
     }
     showModal(html) {
-        this.closeAllModals();
+        this.closeAllModals(true);
         document.body.insertAdjacentHTML('beforeend', html);
         // delegado: clicks en modal para cerrar o acciones internas
         const modal = document.querySelector('[data-modal="true"]');
@@ -304,7 +428,16 @@ class UnifiedConfigManager {
             });
         }
     }
-    closeAllModals() { document.querySelectorAll('[data-modal="true"]').forEach(m => m.remove()); }
+    closeAllModals(immediate = false) {
+        document.querySelectorAll('[data-modal]').forEach(m => {
+            if (immediate) { m.remove(); return; }
+            if (m.dataset.modal === 'closing') return;
+            // 'closing' evita que los selectores [data-modal="true"] lo vean como activo
+            m.dataset.modal = 'closing';
+            m.setAttribute('aria-hidden', 'true');
+            setTimeout(() => m.remove(), 180);
+        });
+    }
 
     // Snackbar / micro-feedback
     showSnackbar(message, timeout = 3000) {
@@ -435,10 +568,15 @@ class UnifiedConfigManager {
             requestAnimationFrame(() => {
                 const modal = document.querySelector('[data-modal="true"]');
                 const selectAllBtn = modal && modal.querySelector('#select-all-button');
+                const setSelected = (item, selected) => {
+                    item.classList.toggle('selected', selected);
+                    const checkbox = item.querySelector('.config-selection-control');
+                    if (checkbox) checkbox.checked = selected;
+                };
                 if (selectAllBtn) selectAllBtn.addEventListener('click', (e) => {
                     const visible = Array.from(modal.querySelectorAll('.config-item')).filter(i => i.style.display !== 'none');
                     const anyUnselected = visible.some(c => !c.classList.contains('selected'));
-                    visible.forEach(c => { if (anyUnselected) c.classList.add('selected'); else c.classList.remove('selected'); });
+                    visible.forEach(card => setSelected(card, anyUnselected));
                     selectAllBtn.textContent = anyUnselected ? 'Unselect all' : 'Select all';
                 });
                 // Search/filter
@@ -446,16 +584,30 @@ class UnifiedConfigManager {
                 if (search) {
                     search.addEventListener('input', (ev) => {
                         const term = String(ev.target.value || '').toLowerCase();
-                        modal.querySelectorAll('.config-item').forEach(item => {
-                            item.style.display = item.textContent.toLowerCase().includes(term) ? '' : 'none';
+                        const items = Array.from(modal.querySelectorAll('.config-item'));
+                        let visibleCount = 0;
+                        items.forEach(item => {
+                            const visible = item.textContent.toLowerCase().includes(term);
+                            item.style.display = visible ? '' : 'none';
+                            if (visible) visibleCount += 1;
                         });
+                        const emptyState = modal.querySelector('.config-search-empty');
+                        if (emptyState) emptyState.hidden = !term || visibleCount > 0;
                     });
                 }
                 // Clicking an item toggles selected visual state (but not a preview)
                 modal && modal.querySelectorAll('.config-item').forEach(item => {
+                    item.tabIndex = 0;
+                    const checkbox = item.querySelector('.config-selection-control');
+                    checkbox?.addEventListener('change', () => setSelected(item, checkbox.checked));
+                    item.addEventListener('keydown', event => {
+                        if (event.target !== item || ![' ', 'Enter'].includes(event.key)) return;
+                        event.preventDefault();
+                        setSelected(item, !item.classList.contains('selected'));
+                    });
                     item.addEventListener('click', (ev) => {
-                        if (ev.target.closest('[data-action]')) return; // ignore clicks on buttons inside item
-                        item.classList.toggle('selected');
+                        if (ev.target.closest('[data-action], .config-selection-control')) return;
+                        setSelected(item, !item.classList.contains('selected'));
                     });
                 });
             });
@@ -546,25 +698,44 @@ class UnifiedConfigManager {
             requestAnimationFrame(() => {
                 const modal = document.querySelector('[data-modal="true"]');
                 const selectAllBtn = modal && modal.querySelector('#select-all-button');
+                const setSelected = (item, selected) => {
+                    item.classList.toggle('selected', selected);
+                    const checkbox = item.querySelector('.config-selection-control');
+                    if (checkbox) checkbox.checked = selected;
+                };
                 if (selectAllBtn) selectAllBtn.addEventListener('click', (e) => {
                     const visible = Array.from(modal.querySelectorAll('.config-item')).filter(i => i.style.display !== 'none');
                     const anyUnselected = visible.some(c => !c.classList.contains('selected'));
-                    visible.forEach(c => { if (anyUnselected) c.classList.add('selected'); else c.classList.remove('selected'); });
+                    visible.forEach(card => setSelected(card, anyUnselected));
                     selectAllBtn.textContent = anyUnselected ? 'Unselect all' : 'Select all';
                 });
                 const search = modal && modal.querySelector('#config-search-input');
                 if (search) {
                     search.addEventListener('input', (ev) => {
                         const term = String(ev.target.value || '').toLowerCase();
-                        modal.querySelectorAll('.config-item').forEach(item => {
-                            item.style.display = item.textContent.toLowerCase().includes(term) ? '' : 'none';
+                        const items = Array.from(modal.querySelectorAll('.config-item'));
+                        let visibleCount = 0;
+                        items.forEach(item => {
+                            const visible = item.textContent.toLowerCase().includes(term);
+                            item.style.display = visible ? '' : 'none';
+                            if (visible) visibleCount += 1;
                         });
+                        const emptyState = modal.querySelector('.config-search-empty');
+                        if (emptyState) emptyState.hidden = !term || visibleCount > 0;
                     });
                 }
                 modal && modal.querySelectorAll('.config-item').forEach(item => {
+                    item.tabIndex = 0;
+                    const checkbox = item.querySelector('.config-selection-control');
+                    checkbox?.addEventListener('change', () => setSelected(item, checkbox.checked));
+                    item.addEventListener('keydown', event => {
+                        if (event.target !== item || ![' ', 'Enter'].includes(event.key)) return;
+                        event.preventDefault();
+                        setSelected(item, !item.classList.contains('selected'));
+                    });
                     item.addEventListener('click', (ev) => {
-                        if (ev.target.closest('[data-action]')) return;
-                        item.classList.toggle('selected');
+                        if (ev.target.closest('[data-action], .config-selection-control')) return;
+                        setSelected(item, !item.classList.contains('selected'));
                     });
                 });
             });
@@ -609,7 +780,7 @@ class UnifiedConfigManager {
                         : Number(value).toFixed(4);
                 }
             });
-            this.clearPlotArea('plane');
+            this.clearPlotArea('plane', false);
             this.closeAllModals();
             this.showMessage(`Results loaded from ${filename}`, 'success');
         } catch (error) {
@@ -758,10 +929,14 @@ class UnifiedConfigManager {
             return true;
         } catch (err) { console.warn('populateWingForm failed', err); return false; }
     }
-    clearPlotArea(type) {
+    clearPlotArea(type, showMessage = true) {
         if (!this.elements.plotArea) return;
         if (window.Plotly && this.elements.plotArea.classList.contains('js-plotly-plot')) {
             Plotly.purge(this.elements.plotArea);
+        }
+        if (!showMessage) {
+            this.elements.plotArea.replaceChildren();
+            return;
         }
         const message = document.createElement('p');
         message.className = 'config-loaded-message';

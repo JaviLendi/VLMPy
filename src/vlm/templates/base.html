@@ -13,7 +13,7 @@
             animation: none !important;
         }
           /* Provide an immediate background to avoid white flash while CSS loads */
-          html { background-color: #121212; color: #e0e0e0; }
+          html { background-color: #0a1017; color: #e7eef0; }
           /* Provide a critical default landing container to avoid layout shift
               before CSS variables are parsed (prevents hero width jumping). */
           :root { --landing-container: 1200px; }
@@ -21,12 +21,14 @@
         .navbar { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; position: relative; }
         .brand { display: flex; align-items: center; gap: 0.75rem; }
         .nav-links { display: flex; align-items: center; gap: 1rem; }
-        .theme-toggle { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+        .theme-switch { width: 114px; height: 40px; display: inline-grid; grid-template-columns: repeat(3, 1fr); }
         /* Hide material-symbols text fallback until the font is available to avoid showing names like "computer" */
         html.icons-loading .material-symbols-outlined { visibility: hidden; opacity: 0; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
@@ -49,18 +51,18 @@
                 html.setAttribute('data-appearance', savedMode);
                 if (savedMode === 'Light') {
                     html.classList.add('light-mode');
-                    html.style.backgroundColor = '#f4f4f9';
-                    html.style.color = '#1a1a1a';
+                    html.style.backgroundColor = '#f3f7f6';
+                    html.style.color = '#17252b';
                 } else if (savedMode === 'Dark') {
                     html.classList.remove('light-mode');
-                    html.style.backgroundColor = '#121212';
-                    html.style.color = '#e0e0e0';
+                    html.style.backgroundColor = '#0a1017';
+                    html.style.color = '#e7eef0';
                 } else {
                     // System
                     const isDark = prefersDark;
                     html.classList.toggle('light-mode', !isDark);
-                    html.style.backgroundColor = isDark ? '#121212' : '#f4f4f9';
-                    html.style.color = isDark ? '#e0e0e0' : '#1a1a1a';
+                    html.style.backgroundColor = isDark ? '#0a1017' : '#f3f7f6';
+                    html.style.color = isDark ? '#e7eef0' : '#17252b';
                 }
             } catch (e) {
                 // silent fallback
@@ -85,7 +87,8 @@
         })();
     </script>
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <div class="wrapper">
         <!-- Loading Spinner -->
         <div id="loading-spinner" class="spinner_main"></div>
@@ -100,31 +103,25 @@
             </div>
             <div class="nav-links" id="nav-links">
                 <div class="nav-nav" id="nav-nav">
-                <a class="nav-init" href="/">Home</a>
-                <a href="/airfoil">
+                <a class="nav-init" href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Home</a>
+                <a href="/airfoil" {% if request.path == '/airfoil' %}aria-current="page"{% endif %}>
                     Airfoil
                 </a>
-                <a href="/wing">
+                <a href="/wing" {% if request.path in ['/wing', '/results'] %}aria-current="page"{% endif %}>
                     Wings
                 </a>
-                <a href="/results">
-                    Results
-                </a>
-                <!-- <a class="nav-cta" href="/airfoil">
-                    <span class="material-symbols-outlined" style="vertical-align:middle;">play_arrow</span> Begin
-                </a> -->
+                <a class="nav-external" href="https://github.com/JaviLendi/VLMPy" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
                 </div>
                 <!-- Theme toggle inside nav-links for inline alignment -->
-                <div class="appearance-toggle" role="region" aria-label="Selector de tema">
-                    <input class="sr-only" id="theme-toggle" type="checkbox" aria-hidden="true" />
-                    <label for="theme-toggle" class="theme-toggle" id="theme-toggle-label" role="button" aria-pressed="false" tabindex="0" title="Cambiar tema (System → Light → Dark)">
-                        <span class="material-symbols-outlined" id="theme-light">light_mode</span>
-                        <span class="material-symbols-outlined" id="theme-system">computer</span>
-                        <span class="material-symbols-outlined" id="theme-dark">dark_mode</span>
-                    </label>
+                <div class="appearance-toggle">
+                    <div class="theme-switch" role="radiogroup" aria-label="Theme">
+                        <button type="button" class="theme-option" role="radio" data-mode="Light" aria-checked="false" title="Light theme"><span class="material-symbols-outlined" aria-hidden="true">light_mode</span><span class="theme-option-label">Light</span></button>
+                        <button type="button" class="theme-option" role="radio" data-mode="System" aria-checked="false" title="Follow system theme"><span class="material-symbols-outlined" aria-hidden="true">computer</span><span class="theme-option-label">System</span></button>
+                        <button type="button" class="theme-option" role="radio" data-mode="Dark" aria-checked="false" title="Dark theme"><span class="material-symbols-outlined" aria-hidden="true">dark_mode</span><span class="theme-option-label">Dark</span></button>
+                    </div>
                 </div>
             </div>
-            <button class="menu-toggle-landing" id="landing-menu-toggle" aria-label="Abrir menú">
+            <button type="button" class="menu-toggle-landing" id="landing-menu-toggle" aria-label="Abrir menú" aria-controls="nav-links" aria-expanded="false">
                 <i class="fas fa-bars"></i>
                 <i class="fas fa-times"></i>
             </button>
@@ -135,54 +132,41 @@
                 const navLinks = document.getElementById('nav-links');
                 const overlay = document.querySelector('.navbar-overlay');
                 function closeMenu() {
-                    // animate out
-                    navLinks.classList.remove('animating-in');
-                    navLinks.classList.add('animating-out');
+                    // play closing animation then remove open
+                    navLinks.classList.remove('open');
+                    navLinks.classList.add('closing');
+                    if (overlay) overlay.classList.remove('active');
                     menuToggle.classList.remove('open');
                     menuToggle.setAttribute('aria-expanded','false');
                     navLinks.setAttribute('aria-hidden','true');
-                    document.querySelector('.navbar')?.classList.remove('open');
-                    // wait for animation end then cleanup
-                    function onOut(e) {
-                        if (e && e.target !== navLinks) return;
-                        navLinks.classList.remove('open','animating-out');
-                        if (overlay) overlay.classList.remove('active');
-                        navLinks.removeEventListener('animationend', onOut);
-                    }
-                    navLinks.addEventListener('animationend', onOut);
+                    // cleanup after animation
+                    navLinks.addEventListener('animationend', function _onClose() {
+                        navLinks.classList.remove('closing');
+                        try { navLinks.removeEventListener('animationend', _onClose); } catch(e){}
+                    });
                 }
                 function openMenu() {
-                    // ensure any pending out animation is cleared
-                    navLinks.classList.remove('animating-out');
-                    // mark open state for navbar/hamburger
-                    document.querySelector('.navbar')?.classList.add('open');
-                    navLinks.classList.add('animating-in');
-                    // add open so items become focusable/visible; animation handles the motion
+                    // ensure any closing class is removed
+                    navLinks.classList.remove('closing');
                     navLinks.classList.add('open');
                     if (overlay) overlay.classList.add('active');
                     menuToggle.classList.add('open');
                     menuToggle.setAttribute('aria-expanded','true');
                     navLinks.setAttribute('aria-hidden','false');
-                    // focus first focusable element inside the panel for keyboard users after animation
+                    // focus first focusable element inside the panel for keyboard users
                     const firstLink = navLinks.querySelector('a, button, [tabindex]:not([tabindex="-1"])');
-                    function onInEnd(e) {
-                        if (e && e.target !== navLinks) return;
-                        if (firstLink) firstLink.focus();
-                        navLinks.classList.remove('animating-in');
-                        navLinks.removeEventListener('animationend', onInEnd);
-                    }
-                    navLinks.addEventListener('animationend', onInEnd);
+                    if (firstLink) firstLink.focus();
                 }
                 if (menuToggle) menuToggle.addEventListener('click', e => { e.stopPropagation(); navLinks.classList.contains('open') ? closeMenu() : openMenu(); });
                 document.addEventListener('click', function(e) { if (navLinks.classList.contains('open') && !navLinks.contains(e.target) && !menuToggle.contains(e.target)) closeMenu(); });
                 if (overlay) overlay.addEventListener('click', closeMenu);
 
-                // Theme tri-state logic: System -> Light -> Dark -> System
-                const label = document.getElementById('theme-toggle-label');
-                const checkbox = document.getElementById('theme-toggle');
+                // Theme radiogroup: Light | System | Dark
+                const options = Array.from(document.querySelectorAll('.theme-option'));
                 const html = document.documentElement;
-                const modes = ['System','Light','Dark'];
-                let current = localStorage.getItem('appearance-mode') || 'System';
+                const modes = ['Light','System','Dark'];
+                let current = localStorage.getItem('appearance-mode');
+                if (!modes.includes(current)) current = 'System';
 
                 function applyMode(mode, persist=true) {
                     // If this change should be persisted by user action, show a short
@@ -213,36 +197,25 @@
                     // If this is a user-triggered change (persist true), animate overlay.
                     const overlay = persist ? createOverlayWithOldBg() : null;
 
-                    // reset mode classes on label
-                    label.classList.remove('mode-light','mode-dark','mode-system');
+                    // reset mode state on the radio options
                     if (mode === 'Light') {
                         html.classList.add('light-mode');
-                        checkbox.checked = true;
-                        label.setAttribute('aria-pressed','true');
-                        label.title = 'Tema: Light (clic para Dark)';
-                        label.classList.add('mode-light');
-                        html.setAttribute('data-appearance','Light');
+                        html.classList.remove('dark-mode');
                     } else if (mode === 'Dark') {
                         html.classList.remove('light-mode');
-                        checkbox.checked = false;
-                        label.setAttribute('aria-pressed','false');
-                        label.title = 'Tema: Dark (clic para System)';
-                        label.classList.add('mode-dark');
-                        html.setAttribute('data-appearance','Dark');
+                        html.classList.add('dark-mode');
                     } else { // System
                         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                         html.classList.toggle('light-mode', !prefersDark);
-                        checkbox.checked = !prefersDark;
-                        label.setAttribute('aria-pressed','mixed');
-                        label.title = 'Tema: System (clic para Light)';
-                        label.classList.add('mode-system');
-                        html.setAttribute('data-appearance','System');
+                        html.classList.toggle('dark-mode', prefersDark);
                     }
+                    html.setAttribute('data-appearance', mode);
+                    options.forEach(option => {
+                        const selected = option.dataset.mode === mode;
+                        option.setAttribute('aria-checked', String(selected));
+                        option.tabIndex = selected ? 0 : -1;
+                    });
                     if (persist) localStorage.setItem('appearance-mode', mode);
-
-                    // small animated feedback on the toggle itself
-                    label.classList.add('animate');
-                    setTimeout(() => label.classList.remove('animate'), 360);
 
                     // If we created an overlay, fade it out to reveal the new theme
                     if (overlay) {
@@ -267,14 +240,18 @@
                 // Initialize
                 applyMode(current, false);
 
-                // Cycle modes on click or Enter/Space
-                function cycleMode() {
-                    const idx = modes.indexOf(current);
-                    const next = modes[(idx + 1) % modes.length];
-                    applyMode(next, true);
-                }
-                label.addEventListener('click', cycleMode);
-                label.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cycleMode(); } });
+                // Click or arrow keys select a mode (radiogroup keyboard pattern)
+                options.forEach((option, index) => {
+                    option.addEventListener('click', () => applyMode(option.dataset.mode, true));
+                    option.addEventListener('keydown', function(e) {
+                        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+                        if (!step) return;
+                        e.preventDefault();
+                        const next = options[(index + step + options.length) % options.length];
+                        applyMode(next.dataset.mode, true);
+                        next.focus();
+                    });
+                });
             });
             </script>
             <!-- Overlay for mobile menu -->
@@ -283,16 +260,18 @@
         <!-- Overlay for sidebar -->
         <div class="overlay" aria-hidden="true"></div>
         <!-- Main Content -->
-        <main class="main-content">
+        <main class="main-content" id="main-content">
             {% block content %}{% endblock %}
         </main>
         <footer class="footer">
             <p>&copy; 2025 VLMPy. All rights reserved.</p>
+            <a href="https://javilendi.github.io/" target="_blank" rel="noopener noreferrer">Portfolio ↗</a>
         </footer>
         <!--Message container-->
         <div id="message-container" class="message-container" aria-live="polite"></div>
         <!-- Scripts -->
         <script defer src="{{ url_for('static', filename='js/script.js') }}"></script>
+        <script defer src="{{ url_for('static', filename='js/info-popup.js') }}"></script>
         <script>
             // Enable transitions/animations after the first paint to avoid
             // initial flicker. Also remove any stale theme overlay if present.

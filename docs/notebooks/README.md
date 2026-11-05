@@ -32,6 +32,12 @@ Every notebook's first code cell searches upward from the current working direct
    visualizes the influence matrix and solved circulation as numerical diagnostics. It
    also times one cold run at several mesh sizes and interprets the result as a local
    observation, not a benchmark.
+5. **`05_panel_methods_2d.ipynb`** — explains the 2D panel-method module
+   `src/vlm/lib/panel2d.py` (Hess-Smith sources plus vortex, and doublets with a wake)
+   following Katz & Plotkin, Chapter 11. It verifies the influence kernels against
+   numerical integration, the Neumann and Kutta residuals, Kutta-Joukowski against the
+   pressure integral, convergence with panel count, and the near-field behavior of the
+   velocity field. It needs only `numpy`, `matplotlib` and `plotly`.
 
 ## Scope and limitations
 
@@ -44,3 +50,5 @@ items in `docs/README-plan.md`, not implemented code.
 The additional computational cells in this revision were executed individually with
 Python 3.13.15. The complete notebooks were not rerun from a clean kernel. Run every cell
 (Run All) and confirm the assertions before treating the full notebook outputs as verified.
+
+Notebook 05 is stored without outputs. Its 12 code cells were executed in order in a plain Python process (plot calls disabled) and all assertions passed; it was not run in a Jupyter kernel.

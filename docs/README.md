@@ -55,10 +55,8 @@ Este proyecto surge como parte del Trabajo de Fin de Grado en Ingeniería Aeroes
 
 ## ✨ Características Principales
 
-- **Cálculo de Coeficientes Aerodinámicos:**  
-    Obtén $C_L$, $C_D$ y momentos para diversas configuraciones de alas.
-- **Análisis de Fuerzas y Momentos** *(próximamente)*  
-    Calcula sustentación, resistencia y momentos para el ala completa o secciones.
+- **Coeficientes aerodinámicos estacionarios:**
+    Calcula $C_L$, $C_D$ inducido y los coeficientes de fuerza y momento $C_X$, $C_Y$, $C_Z$, $C_l$, $C_m$ y $C_n$. Las derivadas estáticas respecto a alpha, beta y deflexiones de controles configurados se estiman con diferencias centrales.
 - **Visualización Interactiva:**  
     Gráficos 2D y 3D con Plotly para geometría, presión y fuerzas.
 - **Geometría de Ala Personalizable:**  
@@ -158,6 +156,9 @@ A continuación, un flujo típico para analizar un ala rectangular:
 
 - **Suposiciones de flujo:** invíscido e incompresible (no apto para transónico/supersónico o efectos viscosos).
 - **Geometría:** optimizado para alas delgadas; no modela alas gruesas o fuselajes.
+- **Ejes y referencias:** en los nuevos coeficientes, $x$ apunta hacia el borde de salida, $y$ hacia el semiala positiva y $z$ hacia arriba; los momentos siguen la regla de la mano derecha. Se normalizan con el área en planta, envergadura y cuerda media del ala. El punto de momento es el cuarto de cuerda medio ponderado por área, no el centro de gravedad. El $C_L/C_D$ heredado conserva la normalización anterior por área total de paneles; con estabilizadores, no se debe comparar directamente con $C_Z/C_X$.
+- **Derivadas:** son estáticas y se expresan por radián; no incluyen derivadas dinámicas de tasas angulares ni constituyen un análisis completo de estabilidad.
+- **Resistencia:** $C_D$ es inducida por el modelo actual. No se calcula resistencia de perfil/parásita, separación ni pérdida.
 - **Recursos:** muchos paneles aumentan el tiempo de cálculo.
 - **Sistema Operativo:** el ejecutable solo probado en Windows 11 (debería funcionar en Windows 10).
 

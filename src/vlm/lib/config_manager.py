@@ -314,6 +314,7 @@ class GeometryConfigManager:
                     config = json.load(f)
                 
                 metadata = config.get("metadata", {})
+                wing_sections = config.get("wing_sections", config.get("wingsections", []))
                 
                 config_info = {
                     "filename": file_path.name,
@@ -325,7 +326,17 @@ class GeometryConfigManager:
                     "has_wing": "wing_sections" in config or "wingsections" in config,
                     "has_horizontal_stabilizer": "horizontal_stabilizer" in config or "horizontalstabilizer" in config,
                     "has_vertical_stabilizer": "vertical_stabilizer" in config or "verticalstabilizer" in config,
-                    "wing_sections_count": len(config.get("wing_sections", config.get("wingsections", [])))
+                    "wing_sections_count": len(wing_sections),
+                    "wing_sections_preview": [
+                        {
+                            "chord_root": section.get("chord_root", section.get("chordroot")),
+                            "chord_tip": section.get("chord_tip", section.get("chordtip")),
+                            "span_fraction": section.get("span_fraction", section.get("spanfraction")),
+                            "sweep": section.get("sweep", 0),
+                        }
+                        for section in wing_sections
+                        if isinstance(section, dict)
+                    ],
                 }
                 if config.get("type") == "airfoil":
                     config_info.update({
