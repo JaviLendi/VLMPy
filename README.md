@@ -111,6 +111,7 @@
    ![Gammas](docs/screenshots/Placa%20plana%20con%20aleron/Gammas.svg)
 
 </details>
+</div>
 
 ## Installation
 
