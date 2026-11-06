@@ -1,4 +1,4 @@
-# Author: Javier Lendínez Castillo
+# Author: Javier Lendínez
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Integrated example: generate STL geometry with a complete NACA profile."""

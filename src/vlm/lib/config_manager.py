@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Author: Javier Lendínez Castillo
+# Author: Javier Lendínez
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """
@@ -321,6 +321,8 @@ class GeometryConfigManager:
                 
                 config_info = {
                     "filename": file_path.name,
+                    "name": config.get("name"),
+                    "description": config.get("description", ""),
                     "path": str(file_path),
                     "size": file_path.stat().st_size,
                     "created_at": metadata.get("created_at", "unknown"),
@@ -336,10 +338,13 @@ class GeometryConfigManager:
                             "chord_tip": section.get("chord_tip", section.get("chordtip")),
                             "span_fraction": section.get("span_fraction", section.get("spanfraction")),
                             "sweep": section.get("sweep", 0),
+                            "dihedral": section.get("dihedral", 0),
                         }
                         for section in wing_sections
                         if isinstance(section, dict)
                     ],
+                    "horizontal_stabilizer_preview": config.get("horizontal_stabilizer", config.get("horizontalstabilizer")),
+                    "vertical_stabilizer_preview": config.get("vertical_stabilizer", config.get("verticalstabilizer")),
                 }
                 if config.get("type") == "airfoil":
                     config_info.update({
@@ -408,8 +413,9 @@ class GeometryConfigManager:
 # Factory function to create the configuration manager
 def create_config_manager():
     """Factory function to create the configuration manager."""
-    config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'saved_configs')
-    backup_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'saved_configs/backups')
+    data_dir = os.environ.get('VLMPY_DATA_DIR') or os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+    config_dir = os.path.join(data_dir, 'saved_configs')
+    backup_dir = os.path.join(data_dir, 'saved_configs', 'backups')
     return GeometryConfigManager(config_dir, backup_dir)
 
 # Initialize the manager globally

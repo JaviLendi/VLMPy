@@ -1,4 +1,4 @@
-# Author: Javier Lendínez Castillo
+# Author: Javier Lendínez
 # SPDX-License-Identifier: AGPL-3.0-only
 
 import os
@@ -58,9 +58,20 @@ except Exception as e:
     raise ImportError("plotly is required for plotting endpoints") from e
 
 import re
+import sys
+import shutil
+
+# Frozen (PyInstaller): bundled resources live in _MEIPASS/vlm; writable data goes next to the exe.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS) / "vlm"
+    USER_DIR = Path(sys.executable).parent
+    if not (USER_DIR / "data").exists():
+        shutil.copytree(BASE_DIR / "data", USER_DIR / "data")
+else:
+    BASE_DIR = USER_DIR = Path(__file__).parent
+os.environ["VLMPY_DATA_DIR"] = str(USER_DIR / "data")
 
 # Local imports (ensure the '../' path is correct)
-import sys
 sys.path.append('../')
 from lib.vlm import (
     VLM, plot_distribution_all, plot_wing_heatmap,
@@ -82,18 +93,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # App
-app = Flask(__name__)
-Compress(app)
+app = Flask(__name__,
+            template_folder=str(BASE_DIR / "templates"),
+            static_folder=str(BASE_DIR / "static"))
+if Compress is not None:
+    Compress(app)
 app.secret_key = os.urandom(24)
-ui = WebUI(app, debug=True)
 
 # Paths
-BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = USER_DIR / "data"
 SAVED_AIRFOILS = DATA_DIR / "saved_airfoils"
 SAVED_STATES = DATA_DIR / "saved_states"
-SAVED_AIRFOILS.mkdir(exist_ok=True)
-SAVED_STATES.mkdir(exist_ok=True)
+SAVED_AIRFOILS.mkdir(parents=True, exist_ok=True)
+SAVED_STATES.mkdir(parents=True, exist_ok=True)
 
 # Resource optimization (robust, non‑intrusive)
 def optimize_resources(reserve_cores: int = 1, omp_threads: Optional[int] = None):
@@ -205,7 +217,7 @@ def safe_int(val: Any, default: int = 0) -> int:
 def load_default_data_sync(filename: str, cache_key: str) -> dict:
     if cache_key in default_cache:
         return default_cache[cache_key]
-    path = BASE_DIR / filename
+    path = USER_DIR / filename
     try:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -323,7 +335,7 @@ def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: 
         with vlm_sessions_lock:
             if vlm_session_generations.get(session_id, 0) != generation:
                 return {"status": "cancelled", "message": "Calculation invalidated by plane reset."}
-            vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
+            vlm.save_and_load_plane_variables(filename=str(DATA_DIR / 'cache_plane_variables.txt'), option='save_and_load')
             vlm_sessions[session_id] = vlm
         return {"status": "success", "message": "Wing design computed."}
     except Exception as e:
@@ -1018,8 +1030,8 @@ def generate_stl():
         logger.info(f"Generating STL for session {session_id} with NACA resolution {naca_resolution}")
 
         # Create the temporary directory if it does not exist.
-        temp_dir = BASE_DIR / "temp_stl"
-        temp_dir.mkdir(exist_ok=True)
+        temp_dir = USER_DIR / "temp_stl"
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         output_path = temp_dir / filename
 
@@ -1576,10 +1588,18 @@ def validate_airfoil_config():
         }), 500
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     optimize_resources()
     try:
-        logger.info("Starting VLMPy Flask server at http://localhost:5001 (pid=%s)", os.getpid())
-        app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
-        #ui.run()
+        # Own AppUserModelID so Windows shows VLMPy's icon in the taskbar instead of python's.
+        if os.name == "nt":
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VLMPy.App")
+        ui = WebUI(app, port=5001, debug=False, app_name="VLMPy",
+                   icon_path=str(BASE_DIR / "static" / "images" / "icon.ico"))
+        ui.run()
+        #logger.info("Starting VLMPy Flask server at http://localhost:5001 (pid=%s)", os.getpid())
+        #app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
     finally:
         thread_pool.shutdown(wait=True)                                                                                                                                                                 

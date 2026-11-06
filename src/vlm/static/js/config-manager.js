@@ -2,7 +2,7 @@
  * UnifiedConfigManager - Unified manager for airfoil and plane (wing) configurations.
  * Combines functionality from airfoil-config-manager.js and plane-config-manager.js.
  *
- * Author: Javier Lendínez Castillo
+ * Author: Javier Lendínez
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 class UnifiedConfigManager {
@@ -118,100 +118,61 @@ class UnifiedConfigManager {
             },
             wingThumbnailSVG: (cfg) => {
                 const inputSections = cfg.wing_sections_preview || cfg.wing_sections || cfg.wingsections || [];
-                const sections = (Array.isArray(inputSections) ? inputSections : []).map(section => {
-                    const rootChord = Number(section.chord_root ?? section.chordroot);
-                    const tipChord = Number(section.chord_tip ?? section.chordtip);
-                    const span = Math.abs(Number(section.span_fraction ?? section.spanfraction));
-                    const rawSweep = Number(section.sweep) || 0;
-                    const sweep = Math.abs(rawSweep) <= Math.PI * 2 ? rawSweep : rawSweep * Math.PI / 180;
-                    return {
-                        rootChord: Number.isFinite(rootChord) && rootChord > 0 ? rootChord : 1,
-                        tipChord: Number.isFinite(tipChord) && tipChord > 0 ? tipChord : 0.6,
-                        span: Number.isFinite(span) && span > 0 ? span / 2 : 0.5,
-                        sweep: Math.max(-1.2, Math.min(1.2, sweep)),
-                    };
-                });
-                if (!sections.length) sections.push({rootChord: 1, tipChord: 0.65, span: 0.5, sweep: 0});
+                const horizontal = cfg.horizontal_stabilizer_preview || cfg.horizontal_stabilizer || cfg.horizontalstabilizer;
+                const vertical = cfg.vertical_stabilizer_preview || cfg.vertical_stabilizer || cfg.verticalstabilizer;
+                const polygons = [];
+                const addSurface = (surfaceSections, type, symmetric) => {
+                    let leading = [0, 0, 0];
+                    let previousChord = null;
+                    surfaceSections.forEach(section => {
+                        if (!section || typeof section !== 'object') return;
+                        const rootChord = Number(section.chord_root ?? section.chordroot);
+                        const tipChord = Number(section.chord_tip ?? section.chordtip);
+                        const span = Number(section.span_fraction ?? section.spanfraction);
+                        const sweep = Number(section.sweep ?? 0);
+                        const dihedral = Number(section.dihedral ?? (symmetric ? 0 : Math.PI / 2));
+                        const xOffset = Number(section.x_translate ?? 0);
+                        const zOffset = Number(section.z_translate ?? 0);
+                        if (![rootChord, tipChord, span, sweep, dihedral, xOffset, zOffset].every(Number.isFinite) || rootChord <= 0 || tipChord <= 0 || span <= 0) return;
+                        const length = symmetric ? span / 2 : span;
+                        const next = [
+                            leading[0] + Math.tan(sweep) * length * (symmetric ? Math.cos(dihedral) : 1),
+                            leading[1] + length * Math.cos(dihedral),
+                            leading[2] + length * Math.sin(dihedral),
+                        ];
+                        const chord = previousChord ?? rootChord;
+                        const vertices = [
+                            [leading[0], leading[1], leading[2]],
+                            [next[0], next[1], next[2]],
+                            [next[0] + tipChord, next[1], next[2]],
+                            [leading[0] + chord, leading[1], leading[2]],
+                        ];
+                        for (const side of symmetric ? [-1, 1] : [1]) {
+                            polygons.push({type, points: vertices.map(([x, y, z]) => [x + xOffset, y * side, z + zOffset])});
+                        }
+                        leading = next;
+                        previousChord = tipChord;
+                    });
+                };
+                addSurface(Array.isArray(inputSections) ? inputSections : [], 'wing', true);
+                if (horizontal) addSurface([horizontal], 'horizontal-stabilizer', true);
+                if (vertical) addSurface([vertical], 'vertical-stabilizer', false);
 
-                let spanPosition = 0;
-                let leadingEdge = 0;
-                const geometry = sections.map(section => {
-                    const nextSpan = spanPosition + section.span;
-                    const nextLeadingEdge = leadingEdge + Math.tan(section.sweep) * section.span;
-                    const segment = {
-                        rootSpan: spanPosition,
-                        tipSpan: nextSpan,
-                        rootLeadingEdge: leadingEdge,
-                        tipLeadingEdge: nextLeadingEdge,
-                        rootChord: section.rootChord,
-                        tipChord: section.tipChord,
-                    };
-                    spanPosition = nextSpan;
-                    leadingEdge = nextLeadingEdge;
-                    return segment;
-                });
-
-                const chordCoordinates = geometry.flatMap(section => [
-                    section.rootLeadingEdge,
-                    section.tipLeadingEdge,
-                    section.rootLeadingEdge + section.rootChord,
-                    section.tipLeadingEdge + section.tipChord,
-                ]);
-                const minChord = Math.min(...chordCoordinates);
-                const maxChord = Math.max(...chordCoordinates);
-                const chordCenter = (minChord + maxChord) / 2;
-                const vertices = geometry.flatMap(section => [
-                    [section.rootSpan, section.rootLeadingEdge],
-                    [section.tipSpan, section.tipLeadingEdge],
-                    [section.tipSpan, section.tipLeadingEdge + section.tipChord],
-                    [section.rootSpan, section.rootLeadingEdge + section.rootChord],
-                    [-section.rootSpan, section.rootLeadingEdge],
-                    [-section.tipSpan, section.tipLeadingEdge],
-                    [-section.tipSpan, section.tipLeadingEdge + section.tipChord],
-                    [-section.rootSpan, section.rootLeadingEdge + section.rootChord],
-                ]);
-                const minX = Math.min(...vertices.map(point => point[0]));
-                const maxX = Math.max(...vertices.map(point => point[0]));
-                const minY = Math.min(...vertices.map(point => point[1]));
-                const maxY = Math.max(...vertices.map(point => point[1]));
-                const centerX = (minX + maxX) / 2;
-                const centerY = (minY + maxY) / 2;
-                const scale = Math.min(168 / Math.max(maxX - minX, 0.01), 88 / Math.max(maxY - minY, 0.01));
-                const project = ([x, y]) => [90 + (x - centerX) * scale, 47 + (y - centerY) * scale];
-                const number = value => value.toFixed(2);
-                const panels = geometry.map(section => {
-                    const right = [
-                        [section.rootSpan, section.rootLeadingEdge],
-                        [section.tipSpan, section.tipLeadingEdge],
-                        [section.tipSpan, section.tipLeadingEdge + section.tipChord],
-                        [section.rootSpan, section.rootLeadingEdge + section.rootChord],
-                    ].map(project).map(([x, y]) => `${number(x)},${number(y)}`).join(' ');
-                    const left = [
-                        [-section.rootSpan, section.rootLeadingEdge],
-                        [-section.tipSpan, section.tipLeadingEdge],
-                        [-section.tipSpan, section.tipLeadingEdge + section.tipChord],
-                        [-section.rootSpan, section.rootLeadingEdge + section.rootChord],
-                    ].map(project).map(([x, y]) => `${number(x)},${number(y)}`).join(' ');
-                    return `<polygon class="wing-thumbnail-panel" points="${right}" /><polygon class="wing-thumbnail-panel" points="${left}" />`;
+                const project = ([x, y, z]) => [y + 0.35 * x, 0.55 * x - 0.12 * y - 0.85 * z];
+                const projected = polygons.map(polygon => ({...polygon, points: polygon.points.map(project)}));
+                const vertices = projected.flatMap(polygon => polygon.points);
+                const minX = vertices.length ? Math.min(...vertices.map(point => point[0])) : 0;
+                const maxX = vertices.length ? Math.max(...vertices.map(point => point[0])) : 1;
+                const minY = vertices.length ? Math.min(...vertices.map(point => point[1])) : 0;
+                const maxY = vertices.length ? Math.max(...vertices.map(point => point[1])) : 1;
+                const scale = Math.min(168 / Math.max(maxX - minX, 0.01), 82 / Math.max(maxY - minY, 0.01));
+                const panels = projected.map(polygon => {
+                    const points = polygon.points.map(([x, y]) => `${(90 + (x - (minX + maxX) / 2) * scale).toFixed(2)},${(47 + (y - (minY + maxY) / 2) * scale).toFixed(2)}`).join(' ');
+                    return `<polygon class="wing-thumbnail-panel" data-surface="${polygon.type}" points="${points}" />`;
                 }).join('');
-                const ribs = geometry.map(section => {
-                    const station = (section.rootSpan + section.tipSpan) / 2;
-                    const fraction = (station - section.rootSpan) / (section.tipSpan - section.rootSpan || 1);
-                    const leading = section.rootLeadingEdge + (section.tipLeadingEdge - section.rootLeadingEdge) * fraction;
-                    const chord = section.rootChord + (section.tipChord - section.rootChord) * fraction;
-                    const rightStart = project([station, leading]).map(number).join(' ');
-                    const rightEnd = project([station, leading + chord]).map(number).join(' ');
-                    const leftStart = project([-station, leading]).map(number).join(' ');
-                    const leftEnd = project([-station, leading + chord]).map(number).join(' ');
-                    return `<path class="wing-thumbnail-rib" d="M${rightStart} L${rightEnd} M${leftStart} L${leftEnd}" />`;
-                }).join('');
-                const rootStart = project([0, geometry[0].rootLeadingEdge]).map(number).join(' ');
-                const rootEnd = project([0, geometry[0].rootLeadingEdge + geometry[0].rootChord]).map(number).join(' ');
-                return `<svg class="config-thumbnail-svg wing-thumbnail-svg" viewBox="0 0 180 94" role="img" aria-label="Wing planform with ${sections.length} section${sections.length === 1 ? '' : 's'}" focusable="false">
+                return `<svg class="config-thumbnail-svg wing-thumbnail-svg" viewBox="0 0 180 94" role="img" aria-label="Aircraft lifting surfaces" focusable="false">
                     <path class="config-thumbnail-grid" d="M10 23H170 M10 47H170 M10 71H170" />
                     ${panels}
-                    ${ribs}
-                    <path class="wing-thumbnail-fuselage" d="M${rootStart} L${rootEnd}" />
                 </svg>`;
             },
             configItemHTML: (type, cfg) => {
@@ -478,12 +439,16 @@ class UnifiedConfigManager {
             }
         } catch (err) {
             this.showMessage(`Error listing configs: ${err.message}`, 'error');
-            return [];
+            return null;
         }
     }
 
     // Open the save modal; type determines the endpoint and form.
     async saveConfigAdvanced(type) {
+        if (type === 'plane' && this.elements.wingForm && !this.elements.wingForm.checkValidity()) {
+            this.elements.wingForm.reportValidity();
+            return;
+        }
         this.currentType = type;
         const footer = `
             <button type="button" class="btn btn-secondary" data-action="close">Cancel</button>
@@ -508,11 +473,6 @@ class UnifiedConfigManager {
         if (this.currentType === 'airfoil') {
             const additional = this._collectAirfoilFormData();
             payload.data = { ...(payload.data || {}), ...additional };
-        } else if (this.currentType === 'plane') {
-            if (this.elements.wingForm) {
-                const full = Object.fromEntries(new FormData(this.elements.wingForm).entries());
-                payload.data = { ...(payload.data || {}), ...full };
-            }
         }
         const btn = button || document.querySelector('[data-action="save-config"]');
         const prevText = btn ? btn.textContent : null;
@@ -525,6 +485,16 @@ class UnifiedConfigManager {
                 const result = await this.apiCall('/saveairfoilconfig', { method: 'POST', body: payload });
                 this.showMessage(result?.replaced_existing ? 'Airfoil replaced; backup created.' : (result?.message || 'Airfoil saved'), 'success');
             } else {
+                if (this.elements.wingForm) {
+                    const wingData = new FormData(this.elements.wingForm);
+                    if (window.vlmpyCore) {
+                        await window.vlmpyCore.request('/wing', { method: 'POST', body: wingData });
+                    } else {
+                        const response = await fetch('/wing', { method: 'POST', body: wingData });
+                        const result = await response.json();
+                        if (!response.ok || result.status !== 'success') throw new Error(result.message || 'Wing computation failed');
+                    }
+                }
                 const result = await this.apiCall('/save_plane_config', { method: 'POST', body: payload });
                 this.showMessage(result?.replaced_existing ? 'Plane configuration replaced; backup created.' : (result?.message || 'Plane config saved'), 'success');
             }
@@ -541,13 +511,17 @@ class UnifiedConfigManager {
     async loadConfigAdvanced(type) {
         this.currentType = type;
         const configs = await this.listConfigs(type);
+        if (!configs) return;
+        if (type === 'plane' && !configs.some(c => c.wing_sections_count || c.has_wing || c.has_horizontal_stabilizer || c.has_vertical_stabilizer)) {
+            const footer = '<button type="button" class="btn btn-secondary" data-action="close">Close</button>';
+            this.showModal(this.templates.modalHTML('Load Configuration', '<div class="empty-state">No wings saved yet.</div>', footer));
+            return;
+        }
         if (!configs.length) { this.showMessage('No saved configurations found', 'warning'); return; }
         // For 'plane' view we must hide airfoil entries entirely: only show plane-like configs
         let useConfigs = configs;
         if (type === 'plane') {
-            const planeLike = configs.filter(c => c.wing_sections_count || c.has_wing || c.has_horizontal_stabilizer || c.has_vertical_stabilizer);
-            if (planeLike.length > 0) useConfigs = planeLike;
-            else { this.showMessage('No plane configurations found', 'warning'); return; }
+            useConfigs = configs.filter(c => c.wing_sections_count || c.has_wing || c.has_horizontal_stabilizer || c.has_vertical_stabilizer);
         }
         const listHTML = this.templates.unifiedListHTML(type, useConfigs);
         const headerHTML = `

@@ -192,3 +192,8 @@ src/vlm/lib/__pycache__/vlm.cpython-313.pyc
 src/vlm/__pycache__/webui.cpython-313.pyc
 /src/vlm/lib/__pycache__
 *.pyc
+build/
+dist/
+*.spec
+installer/Output/
+*.exe

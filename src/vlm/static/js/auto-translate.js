@@ -1,5 +1,5 @@
 /*
- * Author: Javier Lendínez Castillo
+ * Author: Javier Lendínez
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 (function() {

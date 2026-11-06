@@ -1,4 +1,4 @@
-# Author: Javier Lendínez Castillo
+# Author: Javier Lendínez
 # SPDX-License-Identifier: AGPL-3.0-only
 
 from threading import Thread
@@ -7,6 +7,25 @@ import multiprocessing
 import os
 import psutil
 from PySide6 import QtCore, QtWidgets, QtWebEngineCore, QtWebEngineWidgets, QtGui
+from waitress import create_server
+from waitress.wasyncore import close_all
+
+
+class LocalWSGIServer:
+    def __init__(self, app, host, port, threads):
+        self._socket_map = {}
+        self._server = create_server(app, host=host, port=port, threads=threads,
+                                     map=self._socket_map, asyncore_loop_timeout=1)
+        self._thread = Thread(target=self._server.run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        close_all(self._socket_map)
+        self._server.task_dispatcher.shutdown(cancel_pending=True, timeout=1)
+        if self._thread.is_alive():
+            self._thread.join(timeout=2)
 
 class WebUI:
     DEFAULT_URL = "localhost"
@@ -19,12 +38,15 @@ class WebUI:
         self._debug = debug
         self._url = f"http://{url}:{port}"
         self._using_win64 = using_win64
+        self._host = url
+        self._port = port
+        self._server = None
 
         # Initialize thread pool for background tasks
         self._thread_pool = ThreadPoolExecutor(max_workers=self.MAX_WORKERS)
 
         # Initialize Qt application
-        self._qt_app = QtWidgets.QApplication([])
+        self._qt_app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         if icon_path:
             self._qt_app.setWindowIcon(QtGui.QIcon(icon_path))
         if app_name:
@@ -36,12 +58,7 @@ class WebUI:
         self._page = CustomWebEnginePage(self._view)
         self._view.setPage(self._page)
 
-        # Initialize Flask thread
-        self._flask_thread = Thread(
-            target=self._run_flask,
-            args=(url, port, debug, using_win64),
-            daemon=True
-        )
+        self._qt_app.aboutToQuit.connect(self.stop)
 
         # Optimize process priority
         self._optimize_resources()
@@ -51,8 +68,21 @@ class WebUI:
 
     def run(self):
         """Start Flask and GUI components."""
-        self._flask_thread.start()
+        self.start()
+        self._qt_app.exec()
+
+    def start(self):
+        """Start Flask and show the GUI within the existing Qt event loop."""
+        if self._server is None:
+            self._flask_app.debug = self._debug
+            self._server = LocalWSGIServer(self._flask_app, self._host, self._port, self.MAX_WORKERS)
+            self._server.start()
         self._run_gui()
+
+    def stop(self):
+        if self._server is not None:
+            self._server.stop()
+            self._server = None
 
     def _setup_ui(self):
         """Configure modern UI components."""
@@ -107,14 +137,6 @@ class WebUI:
         settings.setAttribute(QtWebEngineCore.QWebEngineSettings.PluginsEnabled, True)
 
         self._main_window.showMaximized()
-        self._qt_app.exec()
-
-    def _run_flask(self, host, port, debug=False, using_win32=False):
-        """Run the Flask application with multithreading."""
-        if using_win32:
-            import pythoncom
-            pythoncom.CoInitialize()
-        self._flask_app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)
 
     def _optimize_resources(self):
         """Optimize CPU and memory resource allocation."""

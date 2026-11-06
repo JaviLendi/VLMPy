@@ -1,5 +1,5 @@
 /*
- * Author: Javier Lendínez Castillo
+ * Author: Javier Lendínez
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 document.addEventListener('DOMContentLoaded', () => {
@@ -208,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // =================== SIDEBAR TOGGLE ===================
     const toggleSidebar = () => {
+        if (!DOM.menuToggle && !DOM.sidebar) return;
         if (!DOM.menuToggle || !DOM.sidebar || !DOM.overlay) {
             console.error('Sidebar, overlay, or menu-toggle elements missing');
             return;

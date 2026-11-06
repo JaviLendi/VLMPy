@@ -1,7 +1,7 @@
 /**
  * MessageCenter - Unified messaging system for VLMPy.
  * Uses the CSS classes: .message .success .error .info
- * Author: Javier Lendínez Castillo
+ * Author: Javier Lendínez
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 class MessageCenter {

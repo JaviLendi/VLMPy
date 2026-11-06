@@ -6,6 +6,10 @@
 
 **VLMPy** is a modern, open-source Python toolkit and application for aerodynamic analysis of wings using the Vortex Lattice Method (VLM). Designed for engineers, students, and enthusiasts, VLMPy makes it easy to model, visualize, and analyze lift and drag for a wide range of wing configurations in subsonic, inviscid flow.
 
+**Current release:** [v1.1.0](https://github.com/JaviLendi/VLMPy/releases/tag/v1.1.0), featuring a redesigned interface.
+
+**Academic scope:** The TFG (Final Degree Project/thesis) covers VLMPy up to version 1.0.1. Version 1.0.2 and later releases are post-thesis development and are outside the academic project's scope.
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Issues](https://img.shields.io/github/issues/JaviLendi/VLMPy.svg)](https://github.com/JaviLendi/VLMPy/issues)
 [![Stars](https://img.shields.io/github/stars/JaviLendi/VLMPy.svg)](https://github.com/JaviLendi/VLMPy/stargazers)
@@ -123,7 +127,7 @@
 
 ### Option 1: Windows Executable (Windows 10/11)
 
-1. Download `app.exe` from the [Releases page](https://github.com/JaviLendi/VLMPy/releases).
+1. Download `VLMPy-Setup-1.1.0.exe` from the [v1.1.0 release](https://github.com/JaviLendi/VLMPy/releases/tag/v1.1.0).
 2. Double-click to launch the application—no additional setup required.
 
 ### Option 2: Install from Source
@@ -135,17 +139,17 @@
    cd VLMPy
    ```
 
-2. Install the application dependencies:
+2. Install the application dependencies from the repository root:
 
    ```bash
-   python -m pip install numpy Flask flask-compress plotly matplotlib numpy-stl psutil PySide6
+   python -m pip install -r requirements.txt
    ```
 
    *Tip*: Update pip with `python -m pip install --upgrade pip` if needed.
 3. Run the app:
 
    ```bash
-   python src/vlm/app.py
+   python src/vlm/launcher.py
    ```
 
 4. Access the web interface at [http://localhost:5001](http://localhost:5001).
@@ -154,10 +158,10 @@
 
 ## Usage
 
-- **Executable**: Launch `app.exe` (Windows) for a standalone experience.
+- **Executable**: Install VLMPy from the Windows installer linked in the [v1.1.0 release](https://github.com/JaviLendi/VLMPy/releases/tag/v1.1.0) for a standalone experience.
 - **Python API**: Core modules for custom analyses are in `src/vlm/lib/`.
 - **Jupyter Notebooks**: Explore example notebooks in `docs/notebooks/` for guided tutorials.
-- **Web Interface**: Run `python src/vlm/app.py` to access the interactive web app at [http://localhost:5001](http://localhost:5001).
+- **Web Interface**: Run `python src/vlm/launcher.py` to open the desktop interface.
 
 Example notebooks and documentation are available in `docs/notebooks/` and `docs/`.
 
@@ -204,7 +208,7 @@ VLMPy is distributed under the [GNU Affero General Public License v3.0 (AGPL-3.0
 
 ## Author
 
-**Javier Lendínez Castillo**  
+**Javier Lendínez**  
 *Aerospace Engineer*
 
 - 💼 GitHub: [@JaviLendi](https://github.com/JaviLendi)
