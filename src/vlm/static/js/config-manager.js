@@ -397,7 +397,21 @@ class UnifiedConfigManager {
             // Keep [data-modal="true"] selectors from treating a closing modal as active.
             m.dataset.modal = 'closing';
             m.setAttribute('aria-hidden', 'true');
-            setTimeout(() => m.remove(), 180);
+            const content = m.querySelector('.modal-content');
+            if (!content || window.getComputedStyle(content).animationName === 'none') {
+                m.remove();
+                return;
+            }
+            const finishClose = () => {
+                clearTimeout(timeout);
+                m.removeEventListener('animationend', onAnimationEnd);
+                m.remove();
+            };
+            const onAnimationEnd = event => {
+                if (event.target === content) finishClose();
+            };
+            const timeout = setTimeout(finishClose, 300);
+            m.addEventListener('animationend', onAnimationEnd);
         });
     }
 

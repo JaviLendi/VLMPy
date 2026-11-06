@@ -468,15 +468,17 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 .info-popup .info-footer, .info-popup > button:last-child { align-self: flex-end; margin-top: 12px; }
 .message-container { position: fixed; right: 20px; bottom: 20px; z-index: 1400; display: flex; flex-direction: column; gap: 8px; width: min(440px, calc(100vw - 32px)); pointer-events: none; }
 .message-container > * { pointer-events: auto; }
-.message { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--surface-border); background: var(--secondary-bg); color: var(--text-color); box-shadow: var(--shadow); opacity: 0; transform: translateY(10px); transition: opacity var(--transition), transform var(--transition); }
+.message { --message-accent: var(--info-color); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--surface-border); border-left: 3px solid var(--message-accent); background: var(--secondary-bg); color: var(--text-color); box-shadow: var(--shadow); opacity: 0; transform: translateY(10px); transition: opacity var(--transition), transform var(--transition); }
 .message-show { opacity: 1; transform: none; }
 .message-hide { opacity: 0; transform: translateY(10px); }
-.message-content { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.message-content { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+.message-content .message-icon { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 3px; background: color-mix(in srgb, var(--message-accent) 14%, transparent); color: var(--message-accent); font-size: 15px; }
+.message-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .message-text { flex: 1; margin: 0; overflow-wrap: anywhere; }
-.message.success { border-left: 3px solid var(--success-color); }
-.message.error { border-left: 3px solid var(--danger-color); }
-.message.info { border-left: 3px solid var(--accent-color); }
-.message-close { min-width: 30px; padding: 4px; border: 0; background: transparent; }
+.message.success { --message-accent: var(--success-color); }
+.message.warning { --message-accent: var(--warning-color); }
+.message.error { --message-accent: var(--danger-color); }
+.message-close { flex: 0 0 30px; min-width: 30px; padding: 4px; border: 0; background: transparent; }
 .spinner { width: 20px; height: 20px; border: 2px solid var(--surface-border); border-top-color: var(--accent-color); border-radius: 50%; animation: spin 0.8s linear infinite; }
 .spinner_main { display: none; position: fixed; top: 50%; left: 50%; z-index: 9999; width: 42px; height: 42px; border: 3px solid var(--surface-border); border-top-color: var(--accent-color); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -486,7 +488,6 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 
 /* Configuration system from design-system.css */
 .modal-overlay[data-modal="true"], .modal-overlay[data-modal="closing"] { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--modal-overlay); animation: none !important; }
-.modal-overlay[data-modal] .modal-content { animation: none !important; }
 .modal-overlay[data-modal="closing"] { pointer-events: none; }
 html:has(.modal-overlay[data-modal]) { overflow: hidden; }
 body:has(.modal-overlay[data-modal]) { overflow: hidden; }

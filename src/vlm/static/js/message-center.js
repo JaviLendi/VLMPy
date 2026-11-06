@@ -83,6 +83,18 @@ class MessageCenter {
 
         const content = document.createElement('div');
         content.className = 'message-content';
+        const severity = {
+            info: {icon: 'fa-info-circle', label: 'Information'},
+            success: {icon: 'fa-check-circle', label: 'Success'},
+            warning: {icon: 'fa-exclamation-triangle', label: 'Warning'},
+            error: {icon: 'fa-times-circle', label: 'Error'},
+        }[type] || {icon: 'fa-info-circle', label: 'Information'};
+        const severityIcon = document.createElement('i');
+        severityIcon.className = `message-icon fas ${severity.icon}`;
+        severityIcon.setAttribute('aria-hidden', 'true');
+        const severityLabel = document.createElement('span');
+        severityLabel.className = 'message-sr-only';
+        severityLabel.textContent = `${severity.label}: `;
         const textElement = document.createElement('span');
         textElement.className = 'message-text';
         textElement.textContent = String(text ?? '');
@@ -95,7 +107,7 @@ class MessageCenter {
         icon.className = 'fas fa-times';
         icon.setAttribute('aria-hidden', 'true');
         closeButton.appendChild(icon);
-        content.append(textElement, closeButton);
+        content.append(severityIcon, severityLabel, textElement, closeButton);
         message.appendChild(content);
 
         // Animate the message entrance.
