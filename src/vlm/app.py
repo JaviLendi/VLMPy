@@ -368,7 +368,7 @@ def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: 
         return {"status": "success", "message": "Wing design computed."}
     except Exception as e:
         logger.exception("VLM computation error")
-        return {"status": "error", "message": f"VLM computation failed: {e}"}
+        return {"status": "error", "message": "VLM computation failed."}
 
 def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None, generation: Optional[int] = None):
     # Submit the work to thread_pool and wait for the result, preserving the existing API.
@@ -380,7 +380,7 @@ def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Opt
         return future.result(timeout=timeout)
     except Exception as e:
         logger.exception("Error waiting VLM future")
-        return {"status": "error", "message": f"VLM thread failed: {e}"}
+        return {"status": "error", "message": "VLM computation failed."}
 
 def _wants_page() -> bool:
     dest = request.headers.get("Sec-Fetch-Dest")
