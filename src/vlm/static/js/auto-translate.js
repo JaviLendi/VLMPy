@@ -1,3 +1,7 @@
+/*
+ * Author: Javier Lendínez
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
 (function() {
   if (window._vlmpy_translate_loaded) return;
   window._vlmpy_translate_loaded = true;

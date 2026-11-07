@@ -1,40 +1,188 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
-    <div class="form-section">
-        <h2>NACA Airfoil Definition</h2>
-        <form id="airfoil-form" aria-label="NACA Airfoil Form">
-            <label for="naca">NACA Profile:</label>
-            <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
-            
-            <label for="u">Free Stream Velocity (m/s):</label>
-            <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
-            
-            <label for="alpha">Angle of Attack (deg):</label>
-            <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
-            
-            <label for="chord">Chord Length (m):</label>
-            <input type="number" id="chord" name="chord" min="-30" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
-            
-            <label for="n">Number of Points:</label>
-            <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
-            
-            <div class="button-group">
-                <button type="button" class="action-button" onclick="plotAirfoil()">Make Plot</button>
-                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
+<!-- Author: Javier Lendínez | SPDX-License-Identifier: AGPL-3.0-only -->
+<div class="container airfoil-layout app-page">
+    <div class="form-section airfoil-form-panel">
+        <div class="results-header">
+            <div>
+            <span class="results-eyebrow">AIRFOIL ANALYSIS / 2D</span>
+                <h2>NACA Airfoil</h2>
+                <p>Define the profile and flight condition for the interactive preview.</p>
             </div>
-            <h3>Manage Airfoil Configuration</h3>
-            <div class="button-group">
+        </div>
+        <form id="airfoil-form" aria-label="NACA Airfoil Form">
+            <section class="airfoil-input-section" aria-labelledby="airfoil-profile-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Profile</span><h3 id="airfoil-profile-title">NACA definition</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('airfoil-profile-info-popup')" aria-label="Show info about NACA definition"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="airfoil-profile-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>NACA Definition Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>NACA Profile:</b> Four-digit NACA code (e.g. 2412). Each digit has a slider below, and the text field and sliders stay in sync.</li>
+                        <li><b>Camber:</b> First digit. Maximum camber as a percentage of the chord.</li>
+                        <li><b>Camber position:</b> Second digit. Chordwise position of the maximum camber, in tenths of the chord.</li>
+                        <li><b>Thickness / Thickness detail:</b> Third and fourth digits. Together they give the maximum thickness as a percentage of the chord.</li>
+                    </ul>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('airfoil-profile-info-popup')">Close</button>
+                </div>
+                <label for="naca">NACA Profile:</label>
+                <input type="text" id="naca" name="naca" value="{{ default_naca.NACA }}" required aria-required="true">
+            <div class="naca-sliders" aria-label="NACA digit controls">
+                <label for="naca-camber">Camber <output id="naca-camber-value">0</output></label>
+                <input type="range" id="naca-camber" min="0" max="9" step="1" value="{{ default_naca.NACA[0] }}">
+                <label for="naca-position">Camber position <output id="naca-position-value">0</output></label>
+                <input type="range" id="naca-position" min="0" max="9" step="1" value="{{ default_naca.NACA[1] }}">
+                <label for="naca-thickness">Thickness <output id="naca-thickness-value">0</output></label>
+                <input type="range" id="naca-thickness" min="0" max="9" step="1" value="{{ default_naca.NACA[2] }}">
+                <label for="naca-thickness-last">Thickness detail <output id="naca-thickness-last-value">0</output></label>
+                <input type="range" id="naca-thickness-last" min="0" max="9" step="1" value="{{ default_naca.NACA[3] }}">
+            </div>
+            </section>
+            
+            <section class="airfoil-input-section" aria-labelledby="airfoil-condition-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Condition</span><h3 id="airfoil-condition-title">Flight and geometry</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('airfoil-condition-info-popup')" aria-label="Show info about flight and geometry"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="airfoil-condition-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Flight and Geometry Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>Free Stream Velocity:</b> Undisturbed flow speed in meters per second (m/s).</li>
+                        <li><b>Angle of Attack:</b> Angle between the chord line and the free stream, in degrees.</li>
+                        <li><b>Chord Length:</b> Airfoil chord in meters (m). Scales the coordinates.</li>
+                        <li><b>Number of Points:</b> Points used to discretize the airfoil contour. More points give a smoother profile.</li>
+                    </ul>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('airfoil-condition-info-popup')">Close</button>
+                </div>
+                <label for="u">Free Stream Velocity (m/s):</label>
+                <input type="number" id="u" name="u" min="0.01" value="{{ default_naca.u }}" step="any" required aria-required="true">
+            
+                <label for="alpha">Angle of Attack (deg):</label>
+                <input type="number" id="alpha" name="alpha" min="-90" max="90" value="{{ default_naca.alpha }}" step="any" required aria-required="true">
+            
+                <label for="chord">Chord Length (m):</label>
+                <input type="number" id="chord" name="chord" min="0.001" max="30" value="{{ default_naca.chord }}" step="any" required aria-required="true">
+            
+                <label for="n">Number of Points:</label>
+                <input type="number" id="n" name="n" value="{{ default_naca.n }}" required aria-required="true" min="10" max="5000" step="1">
+            </section>
+            
+            <section class="airfoil-input-section" aria-labelledby="airfoil-panel-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Analysis</span><h3 id="airfoil-panel-title">2D panel method</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('airfoil-panel-info-popup')" aria-label="Show info about the 2D panel method"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="airfoil-panel-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>2D Panel Method Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>Formulation:</b> Singularity distribution used on the panels: sources plus vortex (Hess-Smith) or doublets with a wake.</li>
+                        <li><b>Number of panels:</b> Panels used to discretize the contour (20-400). More panels increase resolution and computing time.</li>
+                        <li><b>Solve panel method:</b> Runs the solver with the current profile and flight condition, and enables the result views next to the preview.</li>
+                    </ul>
+                    <p>The model assumes incompressible, inviscid, irrotational flow, so it does not predict viscous drag or stall.</p>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('airfoil-panel-info-popup')">Close</button>
+                </div>
+                <label for="panel-method">Formulation:</label>
+                <select id="panel-method">
+                    <option value="source">Sources + vortex (Hess-Smith)</option>
+                    <option value="doublet">Doublets + wake</option>
+                </select>
+                <label for="panel-count">Number of panels (20-400):</label>
+                <input type="number" id="panel-count" value="100" min="20" max="400" step="2">
+                <div class="button-group action-row">
+                    <button type="button" class="action-button" id="panel-solve-button" onclick="solvePanelMethod()">Solve panel method</button>
+                </div>
+            </section>
+
+            <section class="airfoil-input-section airfoil-actions-section" aria-labelledby="airfoil-actions-title">
+            <div class="section-heading"><div><span class="results-eyebrow">Data</span><h3 id="airfoil-actions-title">Save and load</h3></div>
+                <button type="button" class="info-button" onclick="openInfo('airfoil-actions-info-popup')" aria-label="Show info about save and load"><span class="material-icons" aria-hidden="true">info</span></button>
+            </div>
+            <div id="airfoil-actions-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                <h4><span class="material-icons" aria-hidden="true">info</span>Save and Load Info</h4>
+                <div class="info-body">
+                <ul>
+                    <li><b>Save airfoil coordinates (CSV):</b> Downloads the airfoil coordinates as a CSV file.</li>
+                    <li><b>Save:</b> Stores the current airfoil configuration with a name and description.</li>
+                    <li><b>Load:</b> Opens the list of saved airfoil configurations to restore one.</li>
+                </ul>
+                </div>
+                <button type="button" class="info-footer" onclick="closeInfo('airfoil-actions-info-popup')">Close</button>
+            </div>
+            <div class="button-group action-row">
                 <button type="button" class="action-button" onclick="saveAirfoil()">Save airfoil coordinates (CSV)</button>
                 <button type="button" class="action-button" onclick="saveAirfoilAdvanced()">Save</button>
                 <button type="button" class="action-button" onclick="loadAirfoilAdvanced()">Load</button>
                 <!--<button type="button" class="action-button" onclick="document.getElementById('file-input').click()">Load Data</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">-->
             </div>
+            </section>
 
         </form>
     </div>
-    <div id="plot-area" aria-live="polite"></div>
+    <div class="form-section airfoil-editor-section surface-panel">
+        <div class="results-header">
+            <div>
+                <span class="results-eyebrow">Live preview</span>
+                <h2>Interactive NACA Airfoil</h2>
+            </div>
+            <button type="button" class="info-button" onclick="openInfo('airfoil-preview-info-popup')" aria-label="Show info about the preview"><span class="material-icons" aria-hidden="true">info</span></button>
+        </div>
+        <div id="airfoil-preview-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+            <h4><span class="material-icons" aria-hidden="true">info</span>Preview Info</h4>
+            <div class="info-body">
+            <ul>
+                <li><b>Preview:</b> Airfoil shape with upper surface, lower surface and camber line.</li>
+                <li><b>C<sub>p</sub>:</b> Pressure coefficient distribution along the chord (after solving).</li>
+                <li><b>C<sub>L</sub>(x):</b> Lift coefficient contribution along the chord (after solving).</li>
+                <li><b>Panels:</b> Panel discretization used by the solver.</li>
+                <li><b>Flow field:</b> Streamlines and/or C<sub>p</sub> map around the airfoil, with zoom on the airfoil or the full domain.</li>
+            </ul>
+            <p>The result tabs appear only after running the panel method.</p>
+            </div>
+            <button type="button" class="info-footer" onclick="closeInfo('airfoil-preview-info-popup')">Close</button>
+        </div>
+        <div class="airfoil-editor-toolbar">
+            <span id="airfoil-editor-status">NACA Airfoil Preview</span>
+        </div>
+        <div class="panel-chips" id="panel-overview" hidden></div>
+        <div class="panel-workspace">
+        <nav class="panel-view-tabs" id="panel-view-tabs" aria-label="Panel method views" role="tablist" hidden>
+            <button type="button" class="action-button" role="tab" data-view="preview">Preview</button>
+            <button type="button" class="action-button" role="tab" data-view="cp">C<sub>p</sub></button>
+            <button type="button" class="action-button" role="tab" data-view="cl">C<sub>L</sub>(x)</button>
+            <button type="button" class="action-button" role="tab" data-view="geometry">Panels</button>
+            <button type="button" class="action-button" role="tab" data-view="field">Flow field</button>
+        </nav>
+        <div class="panel-stage">
+        <div class="panel-view" data-view="preview">
+            <svg id="airfoil-editor" viewBox="0 0 1000 420" role="img" aria-label="Interactive airfoil editor"></svg>
+            <div class="airfoil-legend" aria-label="Airfoil preview legend">
+                <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-upper"></span>Upper surface</span>
+                <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-lower"></span>Lower surface</span>
+                <span class="airfoil-legend-item"><span class="airfoil-legend-swatch airfoil-legend-camber"></span>Camber line</span>
+            </div>
+        </div>
+        <div class="panel-view panel-plot" id="panel-plot-cp" data-view="cp" hidden></div>
+        <div class="panel-view panel-plot" id="panel-plot-cl" data-view="cl" hidden></div>
+        <div class="panel-view panel-plot" id="panel-plot-geometry" data-view="geometry" hidden></div>
+        <div class="panel-view panel-field-view" data-view="field" hidden>
+            <div class="flow-tools" id="flow-tools" aria-label="Flow field controls">
+                <button type="button" class="action-button" data-group="zoom" data-value="zoom">Zoom airfoil</button>
+                <button type="button" class="action-button" data-group="zoom" data-value="full">Full domain</button>
+                <button type="button" class="action-button" data-group="map" data-value="off">Streamlines</button>
+                <button type="button" class="action-button" data-group="map" data-value="on">+ Cp map</button>
+                <button type="button" class="action-button" data-group="map" data-value="cp">Cp map only</button>
+            </div>
+            <div class="panel-plot" id="panel-plot-field"></div>
+        </div>
+        </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -43,6 +191,83 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.UnifiedConfigManager) {
         window.configManager = new UnifiedConfigManager();
     }
+});
+
+function nacaPreviewCoordinates(code, chord, angleDegrees, count) {
+    const digits = String(code || '').trim();
+    if (!/^\d{4}$/.test(digits)) return null;
+    const camber = Number(digits[0]) / 100;
+    const position = Number(digits[1]) / 10;
+    const thickness = Number(digits.slice(2)) / 100;
+    const alpha = angleDegrees * Math.PI / 180;
+    const x = [];
+    const camberSurface = [];
+    const upper = [];
+    const lower = [];
+    for (let index = 0; index < count; index += 1) {
+        const fraction = index / (count - 1);
+        const camberLine = camber === 0 || position === 0
+            ? 0
+            : fraction <= position
+                ? camber * fraction / (position * position) * (2 * position - fraction)
+                : camber * (1 - fraction) / ((1 - position) ** 2) * (1 - 2 * position + fraction);
+        const thicknessLine = 5 * thickness * (
+            0.2969 * Math.sqrt(fraction) - 0.1260 * fraction
+            - 0.3516 * fraction ** 2 + 0.2843 * fraction ** 3
+            - 0.1036 * fraction ** 4
+        );
+        const xValue = chord * fraction;
+        upper.push([(xValue * Math.cos(alpha) - (camberLine + thicknessLine) * chord * Math.sin(alpha)),
+            ((camberLine + thicknessLine) * chord * Math.cos(alpha) - xValue * Math.sin(alpha))]);
+        lower.push([(xValue * Math.cos(alpha) - (camberLine - thicknessLine) * chord * Math.sin(alpha)),
+            ((camberLine - thicknessLine) * chord * Math.cos(alpha) - xValue * Math.sin(alpha))]);
+        camberSurface.push([xValue * Math.cos(alpha) - camberLine * chord * Math.sin(alpha),
+            camberLine * chord * Math.cos(alpha) - xValue * Math.sin(alpha)]);
+    }
+    return {upper, lower, camber: camberSurface};
+}
+
+window.renderAirfoilEditor = function renderAirfoilEditor() {
+    const svg = document.getElementById('airfoil-editor');
+    const code = document.getElementById('naca').value;
+    const chord = Math.max(0.001, Number(document.getElementById('chord').value) || 1);
+    const angle = Number(document.getElementById('alpha').value) || 0;
+    const count = Math.max(10, Math.min(5000, Number(document.getElementById('n').value) || 100));
+    const coordinates = nacaPreviewCoordinates(code, chord, angle, count);
+    if (!svg || !coordinates) {
+        if (svg) svg.innerHTML = '<text class="airfoil-error" x="500" y="210" text-anchor="middle">Enter a valid 4-digit NACA code</text>';
+        return;
+    }
+    const toPoints = surface => surface.map(([x, z]) => `${(x / chord) * 1000},${210 - z * 900}`).join(' ');
+    svg.innerHTML = `
+        <line class="airfoil-axis" x1="0" y1="210" x2="1000" y2="210" />
+        <polyline class="airfoil-surface airfoil-upper" points="${toPoints(coordinates.upper)}" />
+        <polyline class="airfoil-surface airfoil-lower" points="${toPoints(coordinates.lower)}" />
+        <polyline class="airfoil-camber" points="${toPoints(coordinates.camber)}" />
+        <text class="airfoil-label" x="12" y="34">LE</text>
+        <text class="airfoil-label" x="965" y="34">TE</text>`;
+    document.getElementById('airfoil-editor-status').textContent = `NACA ${code}`;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sliderIds = ['naca-camber', 'naca-position', 'naca-thickness', 'naca-thickness-last'];
+    const syncNacaFromSliders = () => {
+        const digits = sliderIds.map(id => document.getElementById(id).value).join('');
+        document.getElementById('naca').value = digits;
+        sliderIds.forEach(id => {
+            const output = document.getElementById(`${id}-value`);
+            if (output) output.textContent = document.getElementById(id).value;
+        });
+        renderAirfoilEditor();
+    };
+    sliderIds.forEach(id => document.getElementById(id)?.addEventListener('input', syncNacaFromSliders));
+    document.getElementById('naca')?.addEventListener('input', () => {
+        const digits = document.getElementById('naca').value.replace(/\D/g, '').slice(0, 4).padEnd(4, '0');
+        sliderIds.forEach((id, index) => { document.getElementById(id).value = digits[index]; });
+        syncNacaFromSliders();
+    });
+    ['chord', 'alpha', 'n'].forEach(id => document.getElementById(id)?.addEventListener('input', renderAirfoilEditor));
+    syncNacaFromSliders();
 });
 
 function getFormDataAsJson(formId) {
@@ -56,15 +281,21 @@ function plotAirfoil() {
         form.reportValidity();
         return;
     }
-    fetch("/plot/airfoil", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: getFormDataAsJson("airfoil-form")
+    const formData = Object.fromEntries(new FormData(form));
+    const plotRequest = window.vlmpyCore
+        ? window.vlmpyCore.request('/plot/airfoil', {method: 'POST', body: formData})
+        : fetch('/plot/airfoil', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        }).then(response => response.json());
+    plotRequest
+    .then(response => {
+        if (!response.ok) return response.json().then(error => { throw new Error(error.message || 'Plot failed'); });
+        return response.json();
     })
-    .then(response => response.json())
     .then(data => {
         const filename = `naca_${document.getElementById("naca").value}_airfoil`;
-        const plotData = JSON.parse(data.plot);
         if (data.plot) {
             // Remove the specific message from plot-area if present
             const plotArea = document.getElementById('plot-area');
@@ -72,18 +303,23 @@ function plotAirfoil() {
             if (unwantedMsg) {
                 unwantedMsg.remove();
             }
+            if (window.Plotly && plotArea.classList.contains('js-plotly-plot')) Plotly.purge(plotArea);
             plotArea.innerHTML = '';
+            const plotData = typeof data.plot === 'string' ? JSON.parse(data.plot) : data.plot;
             const config = {
                     displaylogo: false,
                     displayModeBar: true,
                     toImageButtonOptions: { filename, format: 'svg' }
                 };
-            Plotly.newPlot("plot-area", plotData.data, plotData.layout, config);
+            Plotly.newPlot(plotArea, plotData.data, plotData.layout, config);
         } else {
             console.error("No plot data received");
         }
     })
-    .catch(error => console.error("Error generating plot:", error));
+    .catch(error => {
+        console.error("Error generating plot:", error);
+        window.messageCenter?.error(`Error generating plot: ${error.message}`);
+    });
 }
 
 function saveAirfoil() {
@@ -178,6 +414,242 @@ function loadData(input) {
 function erasePlot() {
     Plotly.purge("plot-area");
 }
+
+let panelSolveTimer = null;
+let panelSolved = false;
+
+function panelTheme() {
+    const dark = document.documentElement.classList.contains('dark-mode');
+    return {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: {color: dark ? '#e6e6e6' : '#222'},
+        grid: dark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
+    };
+}
+
+// Plotly.js has no named templates: apply theme colors to the layout explicitly.
+function themedLayout(layout) {
+    const {grid, ...base} = panelTheme();
+    const css = getComputedStyle(document.documentElement);
+    // Plotly 3 expects title objects; axis titles must also have room (automargin) to stay visible.
+    const asTitle = t => (typeof t === 'string' ? {text: t} : t);
+    ['xaxis', 'yaxis'].forEach(key => { layout[key] = {gridcolor: grid, zerolinecolor: grid, automargin: true, ...layout[key]}; });
+    ['xaxis', 'yaxis', 'yaxis2'].forEach(key => {
+        if (layout[key]?.title) layout[key] = {...layout[key], title: {standoff: 8, ...asTitle(layout[key].title)}};
+    });
+    if (layout.title) layout.title = asTitle(layout.title);
+    return {...base, modebar: {bgcolor: 'rgba(0,0,0,0)', color: base.font.color,
+        activecolor: css.getPropertyValue('--accent-color-2').trim() || '#3b82f6'}, ...layout};
+}
+function renderPanelResults(r) {
+    const g = r.geometry, d = r.distribution, c = r.coefficients, k = r.diagnostics;
+    const cfg = {displaylogo: false, displayModeBar: true, responsive: true, modeBarButtonsToRemove: ['lasso2d'],
+        toImageButtonOptions: {filename: `naca_${r.naca}_${r.method}_panel`, format: 'svg'}};
+    const pick = (arr, idx) => idx.map(i => arr[i]);
+    const bodyTrace = {x: g.x, y: g.z, mode: 'lines', name: 'Airfoil', line: {color: '#555', width: 2}, fill: 'toself',
+        fillcolor: 'rgba(120,120,120,0.25)', hoverinfo: 'skip'};
+    const equal = {scaleanchor: 'y', scaleratio: 1};
+
+    document.getElementById('panel-view-tabs').hidden = false;
+    document.getElementById('panel-overview').hidden = false;
+    document.getElementById('airfoil-editor-status').textContent =
+        `NACA ${r.naca} \u2013 ${r.method === 'source' ? 'Hess-Smith' : 'Doublets + wake'} (${r.n_panels} panels, \u03b1 = ${r.alpha}\u00b0; geometry at zero incidence, free stream rotated)`;
+    document.querySelector('#panel-view-tabs [data-view="field"]').hidden = !r.field;
+
+    const f = (v, n = 4) => v === null || v === undefined ? '--' : Number(v).toFixed(n);
+    const chip = ([label, value]) => `<span class="panel-chip">${label} <strong>${value}</strong></span>`;
+    document.getElementById('panel-overview').innerHTML = [
+        ['C<sub>L</sub>', f(c.cl)],
+        ['C<sub>m,c/4</sub>', f(c.cm_quarter)],
+        ['C<sub>p,min</sub>', f(c.cp_min, 3)],
+        ['C<sub>D</sub> res.', f(c.cd_pressure)],
+        ['cond', Number(k.cond).toExponential(1)],
+        ['|V\u00b7n|<sub>max</sub>', Number(k.bc_residual).toExponential(1)],
+    ].map(chip).join('');
+
+    // Chordwise loading: dCp(x) = Cp_lower - Cp_upper on a common grid; cumulative integral is the normal-force coefficient.
+    const interp = (xs, ys, x) => {
+        let i = 1;
+        while (i < xs.length - 1 && xs[i] < x) i++;
+        const t = (x - xs[i - 1]) / ((xs[i] - xs[i - 1]) || 1);
+        return ys[i - 1] + t * (ys[i] - ys[i - 1]);
+    };
+    const xu = pick(g.x_mid, d.upper), cu = pick(d.cp, d.upper);
+    const xl = pick(g.x_mid, d.lower).reverse(), cl = pick(d.cp, d.lower).reverse();
+    const x0 = Math.max(xu[0], xl[0]), x1 = Math.min(xu[xu.length - 1], xl[xl.length - 1]);
+    const chordLen = Math.max(...g.x) - Math.min(...g.x);
+    const xs = Array.from({length: 120}, (_, i) => x0 + (x1 - x0) * 0.5 * (1 - Math.cos(Math.PI * i / 119)));
+    const loading = xs.map(x => interp(xl, cl, x) - interp(xu, cu, x));
+    const cumulative = [0];
+    for (let i = 1; i < xs.length; i++) cumulative.push(cumulative[i - 1] + 0.5 * (loading[i] + loading[i - 1]) * (xs[i] - xs[i - 1]) / chordLen);
+    Plotly.react('panel-plot-cl', [
+        {x: xs, y: loading, mode: 'lines', name: '\u0394C<sub>p</sub>(x) = C<sub>p,low</sub> \u2212 C<sub>p,up</sub>', line: {color: '#2ca02c', width: 2},
+            fill: 'tozeroy', fillcolor: 'rgba(44,160,44,0.15)', hovertemplate: 'x=%{x:.3f}<br>\u0394Cp=%{y:.3f}<extra></extra>'},
+        {x: xs, y: cumulative, yaxis: 'y2', mode: 'lines', name: 'Cumulative C<sub>L</sub>(x) (\u222b\u0394C<sub>p</sub>dx/c)',
+            line: {color: '#ff7f0e', width: 2, dash: 'dash'}, hovertemplate: 'x=%{x:.3f}<br>CL(x)=%{y:.4f}<extra></extra>'},
+    ], themedLayout({title: 'Chordwise lift loading',
+        xaxis: {title: 'x (m)'}, yaxis: {title: '\u0394C<sub>p</sub>'},
+        yaxis2: {title: 'Cumulative C<sub>L</sub>', overlaying: 'y', side: 'right', showgrid: false},
+        margin: {l: 55, r: 55, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
+
+    const cpUpper = {x: pick(g.x_mid, d.upper), y: pick(d.cp, d.upper), mode: 'lines+markers', name: 'Upper surface',
+        line: {color: '#d62728'}, marker: {size: 4}, hovertemplate: 'x=%{x:.3f}<br>Cp=%{y:.3f}<extra>upper</extra>'};
+    const cpLower = {x: pick(g.x_mid, d.lower), y: pick(d.cp, d.lower), mode: 'lines+markers', name: 'Lower surface',
+        line: {color: '#1f77b4'}, marker: {size: 4}, hovertemplate: 'x=%{x:.3f}<br>Cp=%{y:.3f}<extra>lower</extra>'};
+    // Reference airfoil on a hidden secondary axis, in the lower band of the plot (z exaggerated vs x).
+    const zMin = Math.min(...g.z), zMax = Math.max(...g.z), band = Math.max(zMax - zMin, 1e-6);
+    const cpProfile = {x: g.x, y: g.z, yaxis: 'y2', mode: 'lines', name: 'Airfoil', fill: 'toself',
+        line: {color: '#555', width: 1.5}, fillcolor: 'rgba(120,120,120,0.3)', hoverinfo: 'skip'};
+    Plotly.react('panel-plot-cp', [cpUpper, cpLower, cpProfile], themedLayout({title: 'Pressure coefficient',
+        xaxis: {title: 'x (m)'}, yaxis: {title: 'C<sub>p</sub>', autorange: 'reversed'},
+        yaxis2: {overlaying: 'y', visible: false, range: [zMin - 0.2 * band, zMax + 3.2 * band]},
+        margin: {l: 55, r: 15, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
+
+    const scale = 0.05 * (Math.max(...g.x) - Math.min(...g.x));
+    const nx = [], nz = [];
+    g.x_mid.forEach((x, i) => { nx.push(x, x + scale * g.n_x[i], null); nz.push(g.z_mid[i], g.z_mid[i] + scale * g.n_z[i], null); });
+    Plotly.react('panel-plot-geometry', [
+        bodyTrace,
+        {x: nx, y: nz, mode: 'lines', name: 'Normals', line: {color: '#d62728', width: 1}, hoverinfo: 'skip'},
+        {x: g.x_mid, y: g.z_mid, mode: 'markers', name: 'Control points', marker: {size: 4, color: '#000'},
+            customdata: g.length.map((len, i) => [i, len]), hovertemplate: 'panel %{customdata[0]}<br>L=%{customdata[1]:.4f}<extra></extra>'},
+        {x: g.x, y: g.z, mode: 'markers', name: 'Nodes', marker: {size: 3, color: '#2ca02c'}, hoverinfo: 'skip'},
+    ], themedLayout({title: 'Panel geometry and normals', xaxis: {title: 'x (m)', ...equal}, yaxis: {title: 'z (m)'},
+        margin: {l: 55, r: 15, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
+
+    const fieldDiv = document.getElementById('panel-plot-field');
+    if (r.field) {
+        const palette = ['#3b4cc0', '#4f9df7', '#38d9c0', '#b8e35a', '#fdd835', '#fb8c00', '#d62728'];
+        const vMin = 0.4, vMax = 1.6, bins = 28;
+        const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+        const speedColor = u => {
+            const pos = Math.min(Math.max(u, 0), 1) * (palette.length - 1), i = Math.min(Math.floor(pos), palette.length - 2);
+            const a = hex(palette[i]), b = hex(palette[i + 1]), f = pos - i;
+            return `rgb(${a.map((v, k) => Math.round(v + f * (b[k] - v))).join(',')})`;
+        };
+        const binX = Array.from({length: bins}, () => []), binZ = Array.from({length: bins}, () => []);
+        r.field.streamlines.forEach(s => {
+            for (let i = 0; i < s.x.length - 1; i++) {
+                const v = ((s.speed[i] + s.speed[i + 1]) / 2 - vMin) / (vMax - vMin);
+                const b = Math.min(bins - 1, Math.max(0, Math.floor(v * bins)));
+                binX[b].push(s.x[i], s.x[i + 1], null);
+                binZ[b].push(s.z[i], s.z[i + 1], null);
+            }
+        });
+        const traces = [
+            {type: 'heatmap', zsmooth: 'best', x: r.field.x, y: r.field.z, z: r.field.cp, zmin: -3, zmax: 1,
+                colorscale: 'RdBu', colorbar: {title: {text: 'C<sub>p</sub>'}, x: 1.12}, opacity: 0.8, visible: false,
+                hovertemplate: 'x=%{x:.3f}<br>z=%{y:.3f}<br>Cp=%{z:.3f}<extra></extra>'},
+            // Dummy trace that only provides the speed colorbar.
+            {x: [null], y: [null], mode: 'markers', showlegend: false, hoverinfo: 'skip',
+                marker: {color: [vMin], cmin: vMin, cmax: vMax, showscale: true,
+                    colorscale: palette.map((c, i) => [i / (palette.length - 1), c]),
+                    colorbar: {title: {text: '|V|/U\u221e'}, thickness: 12, len: 0.8, outlinewidth: 0}}},
+        ];
+        binX.forEach((xs, b) => {
+            if (xs.length) traces.push({x: xs, y: binZ[b], mode: 'lines', showlegend: false, hoverinfo: 'skip',
+                line: {color: speedColor((b + 0.5) / bins), width: 1.8, shape: 'spline', smoothing: 0.4}});
+        });
+        traces.push({...bodyTrace, line: {color: '#111', width: 1.5}, fillcolor: 'rgba(30,30,36,0.95)', showlegend: false});
+
+        const bx0 = Math.min(...g.x), bx1 = Math.max(...g.x), chordLen = bx1 - bx0;
+        const zMid = 0.5 * (Math.min(...g.z) + Math.max(...g.z));
+        const zoom = {'xaxis.range': [bx0 - 0.15 * chordLen, bx1 + 0.4 * chordLen],
+            'yaxis.range': [zMid - 0.3 * chordLen, zMid + 0.3 * chordLen]};
+        const full = {'xaxis.range': [r.field.x[0], r.field.x[r.field.x.length - 1]],
+            'yaxis.range': [r.field.z[0], r.field.z[r.field.z.length - 1]]};
+        const quiet = {showgrid: false, zeroline: false, showline: false, ticks: ''};
+        Plotly.react(fieldDiv, traces, themedLayout({title: 'Streamlines colored by speed |V|/U\u221e',
+            xaxis: {title: 'x (m)', range: zoom['xaxis.range'], ...quiet, ...equal},
+            yaxis: {title: 'z (m)', range: zoom['yaxis.range'], ...quiet},
+            margin: {l: 55, r: 15, t: 40, b: 45}}), cfg);
+        fieldDiv._ranges = {zoom, full};
+        setFlowTool('zoom', 'zoom');
+        setFlowTool('map', 'off');
+    } else {
+        Plotly.purge(fieldDiv);
+        if (currentPanelView === 'field') showPanelView('cp');
+    }
+    showPanelView(currentPanelView === 'preview' ? 'cp' : currentPanelView);
+}
+
+let currentPanelView = 'preview';
+
+function setFlowTool(group, value) {
+    document.querySelectorAll(`#flow-tools [data-group="${group}"]`).forEach(btn => {
+        const on = btn.dataset.value === value;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#flow-tools button').forEach(btn => btn.addEventListener('click', () => {
+        const plot = document.getElementById('panel-plot-field');
+        if (!plot.data) return;
+        const {group, value} = btn.dataset;
+        if (group === 'zoom') Plotly.relayout(plot, plot._ranges[value]);
+        else {
+            // Traces: 0 Cp heatmap, 1 speed colorbar, 2..n-2 streamlines, n-1 airfoil body.
+            const n = plot.data.length, lines = Array.from({length: n - 2}, (_, i) => i + 1);
+            Plotly.restyle(plot, {visible: value !== 'off'}, [0]);
+            Plotly.restyle(plot, {visible: value !== 'cp'}, lines);
+        }
+        setFlowTool(group, value);
+    }));
+});
+
+function showPanelView(view) {
+    currentPanelView = view;
+    document.querySelectorAll('.panel-view').forEach(el => { el.hidden = el.dataset.view !== view; });
+    document.querySelectorAll('#panel-view-tabs button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+        btn.setAttribute('aria-selected', btn.dataset.view === view);
+    });
+    const plot = document.getElementById(`panel-plot-${view}`);
+    if (plot && plot.data) Plotly.Plots.resize(plot);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#panel-view-tabs button').forEach(btn =>
+        btn.addEventListener('click', () => showPanelView(btn.dataset.view)));
+});
+
+async function solvePanelMethod() {
+    const form = document.getElementById('airfoil-form');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    const button = document.getElementById('panel-solve-button');
+    window.vlmpyCore?.setBusy(button, true, 'Solving...');
+    try {
+        const result = await window.vlmpyCore.request('/api/airfoil/panel', {method: 'POST', body: {
+            naca: document.getElementById('naca').value,
+            chord: Number(document.getElementById('chord').value),
+            alpha: Number(document.getElementById('alpha').value),
+            u: Number(document.getElementById('u').value),
+            n_panels: Number(document.getElementById('panel-count').value),
+            method: document.getElementById('panel-method').value,
+        }});
+        renderPanelResults(result);
+        panelSolved = true;
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        window.messageCenter?.error(`Panel method failed: ${error.message}`);
+    } finally {
+        window.vlmpyCore?.setBusy(button, false);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Live re-solve after the first solution
+    ['naca', 'alpha', 'chord', 'u', 'panel-method', 'panel-count', 'panel-field'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', () => {
+            if (!panelSolved) return;
+            clearTimeout(panelSolveTimer);
+            panelSolveTimer = setTimeout(solvePanelMethod, 500);
+        });
+    });
+});
 
 // Add event listener for Enter key to trigger plotAirfoil
 document.addEventListener('keydown', function(event) {

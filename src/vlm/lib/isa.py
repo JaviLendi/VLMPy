@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 ISA functions.
 --------------
@@ -21,7 +24,7 @@ References:
     [1] US Standard Atmosphere, 1976, NASA.
     [2] MRod5, "PyTurb: A Python Library for Gas Turbine Analysis", 2021.
 
-Author: Javier Lendínez Castillo
+Author: Javier Lendínez
 Date: March 2024
 
 """

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="container" style="padding: 3rem 1rem; text-align: center;">
+    <h1>Something went wrong</h1>
+    <p>{{ message }}</p>
+    <p><a href="{{ url_for('index') }}">Back to home</a></p>
+</section>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        window.messageCenter.error({{ message|tojson }}, 10000);
+    });
+</script>
+{% endblock %}

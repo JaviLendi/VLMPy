@@ -1,69 +1,179 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
-    <div class="results-form-section">
-        <h2>Results</h2>
-        <form id="results-form" aria-label="Results Form">
-            <!-- Plot buttons -->
+<!-- Author: Javier Lendínez | SPDX-License-Identifier: AGPL-3.0-only -->
+<div class="container results-layout app-page">
+    <div class="results-form-section results-dashboard">
+        <div class="results-header">
+            <div>
+                <span class="results-eyebrow">ANALYSIS OUTPUT / VLM</span>
+                <h2>Results</h2>
+                <p>Review aerodynamic coefficients, forces and sectional distributions.</p>
+            </div>
+            <a class="btn btn-secondary results-back-link" href="/wing">Edit plane</a>
+        </div>
+
+        <section class="results-overview" aria-labelledby="results-overview-title">
+            <div class="section-heading">
+                <div>
+                    <span class="results-eyebrow">Overview</span>
+                    <h3 id="results-overview-title">Performance summary</h3>
+                </div>
+                <button type="button" class="info-button" onclick="openInfo('results-overview-info-popup')" aria-label="Show info about the performance summary"><span class="material-icons" aria-hidden="true">info</span></button>
+            </div>
+            <div id="results-overview-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                <h4><span class="material-icons" aria-hidden="true">info</span>Performance Summary Info</h4>
+                <div class="info-body">
+                <ul>
+                    <li><b>CL / CD:</b> Existing total lift and induced-drag coefficients. Their legacy reference area is the total area of all modeled panels.</li>
+                    <li><b>CX, CY, CZ:</b> Force coefficients along the solver x, y and z axes. Here x points downstream, y toward the positive semispan and z upward.</li>
+                    <li><b>Cl, Cm, Cn:</b> Roll, pitch and yaw moment coefficients, using the right-hand rule. Lowercase <b>Cl</b> is roll; uppercase <b>CL</b> is lift.</li>
+                    <li><b>New force and moment references:</b> Main-wing planform area, span and mean aerodynamic chord. Moments use the area-weighted quarter-chord point, not the aircraft center of gravity.</li>
+                    <li><b>Lift / Drag:</b> Total lift and drag forces in newtons (N), from the flight condition used in the analysis.</li>
+                    <li><b>Wing, horizontal and vertical stabilizer lift:</b> Lift contribution of each surface, in newtons (N).</li>
+                </ul>
+                <p>The solver is inviscid: it predicts induced drag, but not profile drag, separation or stall. The coefficient sets use different reference areas, so compare them with that distinction in mind.</p>
+                </div>
+                <button type="button" class="info-footer" onclick="closeInfo('results-overview-info-popup')">Close</button>
+            </div>
+            <div class="results-metric-grid">
+                <div class="results-metric results-metric-primary"><span>CL</span><strong id="result-cl">{{ cl }}</strong><small>Lift coefficient</small></div>
+                <div class="results-metric results-metric-primary"><span>CD</span><strong id="result-cd">{{ cd }}</strong><small>Induced drag coefficient</small></div>
+                <div class="results-metric"><span>Lift</span><strong id="result-lift">{{ total_lift }}</strong><small>N</small></div>
+                <div class="results-metric"><span>Drag</span><strong id="result-drag">{{ total_drag }}</strong><small>N</small></div>
+            </div>
+            <div class="results-metric-grid" aria-label="Solver-axis force and moment coefficients">
+                {% for coefficient, value in force_coefficients.items() %}
+                <div class="results-metric"><span>{{ coefficient }}</span><strong>{{ value }}</strong><small>Force coefficient</small></div>
+                {% endfor %}
+                {% for coefficient, value in moment_coefficients.items() %}
+                <div class="results-metric"><span>{{ coefficient }}</span><strong>{{ value }}</strong><small>Moment coefficient</small></div>
+                {% endfor %}
+            </div>
+            <div class="results-force-grid">
+                <div class="result-item"><span class="result-label">Wing lift</span><span class="result-value" id="result-wing-lift">{{ wing_lift }} N</span></div>
+                <div class="result-item"><span class="result-label">Horizontal stabilizer lift</span><span class="result-value" id="result-hs-lift">{{ hs_lift }} N</span></div>
+                <div class="result-item"><span class="result-label">Vertical stabilizer lift</span><span class="result-value" id="result-vs-lift">{{ vs_lift }} N</span></div>
+            </div>
+        </section>
+
+        <section class="results-tool-section results-analysis-section" aria-labelledby="derivatives-title">
+            <div class="section-heading">
+                <div><span class="results-eyebrow">Stability</span><h3 id="derivatives-title">Static aerodynamic derivatives</h3></div>
+                <button type="button" class="info-button" onclick="openInfo('derivatives-info-popup')" aria-label="Show info about static aerodynamic derivatives"><span class="material-icons" aria-hidden="true">info</span></button>
+            </div>
+            <div id="derivatives-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                <h4><span class="material-icons" aria-hidden="true">info</span>Static Derivatives Info</h4>
+                <div class="info-body">
+                <ul>
+                    <li>Rows identify the coefficient; each value is its sensitivity to the variable named by the column, not the coefficient value shown in the summary.</li>
+                    <li>Derivatives are estimated with central finite differences using a default perturbation of 0.1 degrees and are reported per radian.</li>
+                    <li><b>Alpha / beta:</b> Angle-of-attack and sideslip sensitivities.</li>
+                    <li><b>Wing-section columns:</b> Sensitivity to the configured flap or aileron deflection for that wing section.</li>
+                    <li>The calculation restores the original flight condition and geometry. These are static derivatives; rates, dynamic stability and viscous effects are not modeled.</li>
+                </ul>
+                </div>
+                <button type="button" class="info-footer" onclick="closeInfo('derivatives-info-popup')">Close</button>
+            </div>
+            <p>Central finite differences per radian for angle of attack, sideslip and configured wing controls.</p>
             <div class="button-group">
+                <button type="button" class="action-button" id="calculate-derivatives-button">Calculate derivatives</button>
+            </div>
+            <div id="derivatives-output" class="derivatives-output" aria-live="polite">Derivatives have not been calculated.</div>
+        </section>
+
+        <form id="results-form" aria-label="Results Form">
+            <section class="results-tool-section" aria-labelledby="loads-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Primary plots</span><h3 id="loads-title">Loads and coefficients</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('results-loads-info-popup')" aria-label="Show info about loads and coefficients"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="results-loads-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Loads and Coefficients Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>Lift / Drag:</b> Spanwise distribution of lift and drag forces.</li>
+                        <li><b>CL / CD:</b> Spanwise strip coefficients; CD is induced drag in this inviscid solver.</li>
+                        <li><b>CL vs CD:</b> Spanwise plot of the local CL/CD ratio.</li>
+                        <li>The new CX/CY/CZ and Cl/Cm/Cn values are integrated aircraft results in the summary; these plot controls do not yet show their spanwise distributions.</li>
+                    </ul>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('results-loads-info-popup')">Close</button>
+                </div>
+                <div class="button-group">
                 <button type="button" class="action-button" onclick="plotData('/plot/Lift', 'Lift')">Lift</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/Drag', 'Drag')">Drag</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CL', 'CL')">CL</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CD', 'CD')">CD</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CL_CD', 'CL vs CD')">CL vs CD</button>
-            </div>
-            <label>3D heatmap</label>
-            <div class="button-group">
+                </div>
+            </section>
+            <section class="results-tool-section" aria-labelledby="heatmaps-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Field data</span><h3 id="heatmaps-title">Surface diagnostics</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('results-heatmaps-info-popup')" aria-label="Show info about surface diagnostics"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="results-heatmaps-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Surface Diagnostics Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>Induced velocities:</b> Velocity induced on the surface panels by the vortex system.</li>
+                        <li><b>Gammas:</b> Circulation strength of the vortex on each panel.</li>
+                        <li><b>Wing curvature:</b> Curvature (camber) of the lifting surface.</li>
+                        <li><b>3D / 2D:</b> The same fields shown as a 3D view or as a flat 2D map of the surface.</li>
+                    </ul>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('results-heatmaps-info-popup')">Close</button>
+                </div>
+                <div class="results-subgroup"><span class="results-subgroup-label">3D</span><div class="button-group">
                 <button type="button" class="action-button" onclick="plotData('/plot/wi', 'Induced velocities')">Induced velocities</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/gammas', 'Gammas')">Gammas</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/curvature', 'Curvature')">Wing curvature</button>
-            </div>
-            <label>2D heatmap</label>
-            <div class="button-group">
+                </div></div>
+                <div class="results-subgroup"><span class="results-subgroup-label">2D</span><div class="button-group">
                 <button type="button" class="action-button" onclick="plotData('/plot/wi_2d', 'Induced velocities')">Induced velocities</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/gammas_2d', 'Gammas')">Gammas</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/curvature_2d', 'Curvature')">Wing curvature</button>
-            </div>
-            <label>Load results</label>
-            <div class="button-group">
+                </div></div>
+            </section>
+            <section class="results-tool-section" aria-labelledby="data-actions-title">
+                <div class="section-heading"><div><span class="results-eyebrow">Data</span><h3 id="data-actions-title">Save and load</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('results-data-info-popup')" aria-label="Show info about save and load"><span class="material-icons" aria-hidden="true">info</span></button>
+                </div>
+                <div id="results-data-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Save and Load Info</h4>
+                    <div class="info-body">
+                    <ul>
+                        <li><b>Save results:</b> Stores the configuration, flight condition, circulation solution, existing CL/CD and the six integrated force and moment coefficients.</li>
+                        <li><b>Static derivatives:</b> Included when they have been calculated and are available in the current solution state.</li>
+                        <li><b>Load results:</b> Restores saved arrays and reconstructs the integrated coefficients for older result manifests.</li>
+                        <li><b>Legacy PKL state:</b> Loads a state from an older <code>.pkl</code> file.</li>
+                    </ul>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('results-data-info-popup')">Close</button>
+                </div>
+                <div class="button-group">
+                <button type="button" class="action-button" onclick="saveResultsAdvanced()">Save results</button>
+                <button type="button" class="action-button" onclick="loadResultsAdvanced()">Load results</button>
+                </div>
+                <div class="results-legacy-row">
+                <span>Legacy PKL state</span>
                 <input type="file" id="state-file-input" accept=".pkl" />
                 <button type="button" class="action-button" onclick="loadVLM()">Load</button>
-            </div>
+                </div>
+            </section>
         </form>
-        <div class="results-numeric-section">
-            <h2>Numeric Results</h2>
-            <div class="numeric-results-grid">
-                <div class="result-item">
-                    <span class="result-label">Lift Coefficient (CL):</span>
-                    <span class="result-value">{{ cl }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Drag Coefficient (CD):</span>
-                    <span class="result-value">{{ cd }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Total Lift (N):</span>
-                    <span class="result-value">{{ total_lift }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Total Drag (N):</span>
-                    <span class="result-value">{{ total_drag }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Wing Lift (N):</span>
-                    <span class="result-value">{{ wing_lift }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Horizontal Stabilizer Lift (N):</span>
-                    <span class="result-value">{{ hs_lift }}</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Vertical Stabilizer Lift (N):</span>
-                    <span class="result-value">{{ vs_lift }}</span>
-                </div>
-            </div>
+        <section class="results-tool-section results-analysis-section" aria-labelledby="section-title">
+        <div class="section-heading"><div><span class="results-eyebrow">Detail</span><h3 id="section-title">Span section</h3></div>
+            <button type="button" class="info-button" onclick="openInfo('results-section-info-popup')" aria-label="Show info about the span section"><span class="material-icons" aria-hidden="true">info</span></button>
         </div>
- <h2>Visualize a determined section of the span</h2>
+        <div id="results-section-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+            <h4><span class="material-icons" aria-hidden="true">info</span>Span Section Info</h4>
+            <div class="info-body">
+            <ul>
+                <li><b>Nº of section:</b> Index of the spanwise strip to inspect.</li>
+                <li><b>Lift / Drag:</b> Plots the lift or drag of that section along the chord.</li>
+            </ul>
+            </div>
+            <button type="button" class="info-footer" onclick="closeInfo('results-section-info-popup')">Close</button>
+        </div>
         <form id="chord-form" aria-label="Chord">
             <section class="form-group">
                 <div class="input-group">
@@ -76,7 +186,23 @@
                 <button type="button" class="action-button" onclick="plotData('/plot/DragSection', 'DragSection')">Drag</button>
             </div>
         </form>
-        <h2>Analis for different angles of attack</h2>
+        </section>
+        <section class="results-tool-section results-analysis-section" aria-labelledby="alpha-title">
+        <div class="section-heading"><div><span class="results-eyebrow">Sweep</span><h3 id="alpha-title">Angles of attack</h3></div>
+            <button type="button" class="info-button" onclick="openInfo('results-alpha-info-popup')" aria-label="Show info about the angle of attack sweep"><span class="material-icons" aria-hidden="true">info</span></button>
+        </div>
+        <div id="results-alpha-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+            <h4><span class="material-icons" aria-hidden="true">info</span>Angles of Attack Info</h4>
+            <div class="info-body">
+            <ul>
+                <li><b>Angles of attack:</b> Comma-separated list in degrees (e.g. 0, 2, 4, 6).</li>
+                <li><b>Calculate:</b> Runs the analysis for each angle. The API response contains CL, CD and the six integrated force and moment coefficient series.</li>
+                <li><b>Available plots:</b> Plot CL, CD, CX, CY, CZ, Cl, Cm or Cn against alpha. Each button replaces the current Plotly chart. Calculate a sweep first.</li>
+                <li>CD is induced drag only. The VLM does not model profile drag, separation or stall.</li>
+            </ul>
+            </div>
+            <button type="button" class="info-footer" onclick="closeInfo('results-alpha-info-popup')">Close</button>
+        </div>
         <form id="analisis-form" aria-label="Analisis">
             <section class="form-group">
                 <div class="input-group">
@@ -93,26 +219,20 @@
                 <button type="button" class="action-button" onclick="plotData('/plot/CD-alpha', 'CD-alpha')">CD vs alpha</button>
                 <button type="button" class="action-button" onclick="plotData('/plot/CL-CD-alpha', 'CL-CD-alpha')">CL/CD vs alpha</button>
             </div>
+            <div class="coefficient-plot-grid" role="group" aria-label="Additional aerodynamic coefficient plots versus angle of attack">
+                <button type="button" class="action-button" onclick="plotData('/plot/CX-alpha', 'CX-alpha')">CX vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CY-alpha', 'CY-alpha')">CY vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/CZ-alpha', 'CZ-alpha')">CZ vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/Cl-alpha', 'Cl-alpha')">Cl vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/Cm-alpha', 'Cm-alpha')">Cm vs alpha</button>
+                <button type="button" class="action-button" onclick="plotData('/plot/Cn-alpha', 'Cn-alpha')">Cn vs alpha</button>
+            </div>
         </form>
+        </section>
     </div>
-    <div id="plot-area" class="results-form-section" aria-live="polite"></div>
+    <div id="plot-area" class="results-form-section results-plot-panel" aria-live="polite" aria-label="Interactive analysis plot"></div>
 </div>
 <script>
-// Populate state selector on page load
-document.addEventListener('DOMContentLoaded', () => {
-    fetch('/list_vlm_states')
-        .then(res => res.json())
-        .then(list => {
-            const selector = document.getElementById('state-selector');
-            list.states.forEach(fn => {
-                const option = document.createElement('option');
-                option.value = fn;
-                option.textContent = fn;
-                selector.appendChild(option);
-            });
-        }).catch(err => console.error('Failed to load state list', err));
-});
-
 function clearPlots() {
     const plotArea = document.getElementById('plot-area');
     if (plotArea) plotArea.innerHTML = '';
@@ -149,28 +269,67 @@ function loadVLM() {
     });
 }
 
+document.getElementById('calculate-derivatives-button')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const output = document.getElementById('derivatives-output');
+    button.disabled = true;
+    output.textContent = 'Calculating...';
+    try {
+        const response = await fetch('/api/aerodynamics/derivatives', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({step_deg: 0.1})
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') throw new Error(data.message || 'Derivative calculation failed');
+        const derivatives = data.derivatives;
+        const controls = Object.entries(derivatives.controls || {});
+        const columns = [
+            ['d/d alpha', derivatives.alpha, 'alpha'],
+            ['d/d beta', derivatives.beta, 'beta'],
+            ...controls.map(([name, values]) => [name, values, 'delta'])
+        ];
+        const table = document.createElement('table');
+        table.className = 'derivatives-table';
+        const caption = document.createElement('caption');
+        caption.textContent = `Sensitivity per radian · finite-difference step ${derivatives.step_deg} deg`;
+        table.appendChild(caption);
+        const head = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Coefficient', ...columns.map(([label]) => label)].forEach(label => {
+            const cell = document.createElement('th');
+            cell.scope = 'col';
+            cell.textContent = label;
+            headerRow.appendChild(cell);
+        });
+        head.appendChild(headerRow);
+        table.appendChild(head);
+        const body = document.createElement('tbody');
+        ['CX', 'CY', 'CZ', 'Cl', 'Cm', 'Cn'].forEach(coefficient => {
+            const row = document.createElement('tr');
+            const label = document.createElement('th');
+            label.scope = 'row';
+            label.textContent = coefficient;
+            row.appendChild(label);
+            columns.forEach(([, values, variable]) => {
+                const cell = document.createElement('td');
+                cell.textContent = Number(values[`d${coefficient}_d${variable}`]).toExponential(3);
+                row.appendChild(cell);
+            });
+            body.appendChild(row);
+        });
+        table.appendChild(body);
+        const scrollContainer = document.createElement('div');
+        scrollContainer.className = 'derivatives-table-scroll';
+        scrollContainer.appendChild(table);
+        output.replaceChildren(scrollContainer);
+    } catch (error) {
+        output.textContent = error.message;
+    } finally {
+        button.disabled = false;
+    }
+});
 
-function plotData(endpoint, title) {
-    // Ensure we start fresh by clearing plots
-    clearPlots();
-    fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}) // send empty JSON to satisfy Flask
-    })
-    .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-    })
-    .then(plotJson => {
-        // existing plot rendering logic
-        renderPlot(plotJson, title);
-    })
-    .catch(err => {
-        console.error('Plot error:', err);
-        const msgContainer = document.getElementById('message-container');
-        msgContainer.innerHTML = `<div class="message error">Error plotting ${title}: ${err.message}</div>`;
-    });
-}
+
 </script>
 {% endblock %}

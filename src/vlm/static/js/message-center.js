@@ -1,6 +1,8 @@
 /**
- * MessageCenter - Sistema unificado de mensajería para VLMPy
- * Usa las clases CSS: .message .success .error .info
+ * MessageCenter - Unified messaging system for VLMPy.
+ * Uses the CSS classes: .message .success .error .info
+ * Author: Javier Lendínez
+ * SPDX-License-Identifier: AGPL-3.0-only
  */
 class MessageCenter {
     #container;
@@ -11,7 +13,7 @@ class MessageCenter {
         this.#container = document.querySelector(selector) ?? this.#createContainer(selector);
         this.#timeout = defaultTimeout;
 
-        // Delegated click: cierra con botón
+        // Delegated click: close messages with the dismiss button.
         this.#container.addEventListener('click', e => {
             if (e.target.closest('[data-dismiss]')) {
                 const message = e.target.closest('.message');
@@ -19,13 +21,13 @@ class MessageCenter {
             }
         });
 
-        // Esc para limpiar todos los mensajes
+        // Press Escape to clear all messages.
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') this.clear();
         });
     }
 
-    /* Métodos públicos */
+    /* Public methods. */
     info(msg, timeout)    { this.#push(msg, 'info', timeout); }
     success(msg, timeout) { this.#push(msg, 'success', timeout); }
     warning(msg, timeout) { this.#push(msg, 'warning', timeout); }
@@ -33,7 +35,7 @@ class MessageCenter {
 
     clear() {
         this.#activeMessages.clear();
-        this.#container.innerHTML = '';
+        this.#container.replaceChildren();
     }
 
     showMessage(text, type = 'info', timeout) {
@@ -48,7 +50,7 @@ class MessageCenter {
         handler(text, timeout);
     }
 
-    /* Privados */
+    /* Private methods. */
     #push(text, type, timeout = this.#timeout) {
         const hash = `${type}:${text}`;
         if (this.#activeMessages.has(hash)) return;
@@ -66,11 +68,11 @@ class MessageCenter {
 
     #createMessage(text, type, hash) {
         const message = document.createElement('div');
-        // Aplica clase base 'message' y la clase de severidad como clase separada
+        // Apply the base 'message' class and a separate severity class.
         message.classList.add('message', String(type || 'info').toLowerCase());
         message.dataset.hash = hash;
 
-        // Accesibilidad según severidad
+        // Set accessibility attributes based on severity.
         if (type === 'error' || type === 'warning') {
             message.setAttribute('role', 'alert');
             message.setAttribute('aria-live', 'assertive');
@@ -79,17 +81,36 @@ class MessageCenter {
             message.setAttribute('aria-live', 'polite');
         }
 
-        // Estructura (coincide con tu CSS)
-        message.innerHTML = `
-            <div class="message-content">
-                <span class="message-text">${text}</span>
-                <button class="message-close" data-dismiss aria-label="Cerrar mensaje" type="button">
-                    <i class="fas fa-times" aria-hidden="true"></i>
-                </button>
-            </div>
-        `;
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        const severity = {
+            info: {icon: 'fa-info-circle', label: 'Information'},
+            success: {icon: 'fa-check-circle', label: 'Success'},
+            warning: {icon: 'fa-exclamation-triangle', label: 'Warning'},
+            error: {icon: 'fa-times-circle', label: 'Error'},
+        }[type] || {icon: 'fa-info-circle', label: 'Information'};
+        const severityIcon = document.createElement('i');
+        severityIcon.className = `message-icon fas ${severity.icon}`;
+        severityIcon.setAttribute('aria-hidden', 'true');
+        const severityLabel = document.createElement('span');
+        severityLabel.className = 'message-sr-only';
+        severityLabel.textContent = `${severity.label}: `;
+        const textElement = document.createElement('span');
+        textElement.className = 'message-text';
+        textElement.textContent = String(text ?? '');
+        const closeButton = document.createElement('button');
+        closeButton.className = 'message-close';
+        closeButton.dataset.dismiss = '';
+        closeButton.setAttribute('aria-label', 'Close message');
+        closeButton.type = 'button';
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-times';
+        icon.setAttribute('aria-hidden', 'true');
+        closeButton.appendChild(icon);
+        content.append(severityIcon, severityLabel, textElement, closeButton);
+        message.appendChild(content);
 
-        // Animación de entrada
+        // Animate the message entrance.
         requestAnimationFrame(() => message.classList.add('message-show'));
 
         return message;
@@ -117,9 +138,19 @@ class MessageCenter {
     }
 }
 
-/* Export / instancia global */
+/* Export and global instance. */
 window.MessageCenter = MessageCenter;
 window.messageCenter = new MessageCenter();
+
+/* Route uncaught JS errors and rejected promises through notifications. */
+window.addEventListener('error', e => {
+    if (!e.message || e.message.startsWith('ResizeObserver')) return;
+    window.messageCenter.error(`Unexpected error: ${e.message}`);
+});
+window.addEventListener('unhandledrejection', e => {
+    const reason = e.reason;
+    window.messageCenter.error(`Unexpected error: ${reason?.message ?? reason ?? 'Unknown'}`);
+});
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { MessageCenter };

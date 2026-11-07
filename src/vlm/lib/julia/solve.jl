@@ -1,3 +1,5 @@
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
 # wing.jl
 using LinearAlgebra
 using SparseArrays

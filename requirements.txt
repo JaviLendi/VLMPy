@@ -1,0 +1,9 @@
+numpy
+Flask
+waitress
+flask-compress
+plotly
+matplotlib
+numpy-stl
+psutil
+PySide6

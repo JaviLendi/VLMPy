@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
 
 import os
 import sys
@@ -9,6 +11,10 @@ import pickle
 import plotly.graph_objects as go
 import plotly.colors
 import json
+import time
+import hashlib
+import copy
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,6 +59,220 @@ class VLM:
         self.vs_span            = 0
         self.wing_span          = 0
         self.results            = None
+        self.timings            = {}
+        self._geometry_cache_key = None
+        self._discretization_cache_key = None
+        self._panel_cache_token = 0
+        self._influence_cache = {}
+        self._solution_state_key = None
+
+    def _plane_cache_key(self):
+        """Return a deterministic key for the current geometry inputs."""
+        plane_data = json.dumps(self.plane, sort_keys=True, default=str)
+        return plane_data, float(self.alpha)
+
+    def _clear_solution_state(self):
+        self.results = None
+        self._solution_state_key = None
+        for name in (
+            'w_i', 'P_ij', 'P_ij_resis', 'gammas', 'lift_wing2', 'lift', 'lift_sum',
+            'CL', 'CL_locals', 'drag_wing2', 'drag', 'drag_sum', 'CD',
+            'CD_locals', 'lift_wing', 'lift_hs', 'lift_vs', 'drag_wing',
+            'drag_hs', 'drag_vs', 'CL_locals_wing', 'CL_locals_hs',
+            'CL_locals_vs', 'CD_locals_wing', 'CD_locals_hs',
+            'CD_locals_vs', 'aerodynamic_coefficients', 'CX', 'CY', 'CZ',
+            'Cl', 'Cm', 'Cn', 'force_coefficients', 'moment_coefficients',
+            'static_derivatives',
+        ):
+            self.__dict__.pop(name, None)
+
+    def _solution_cache_key(self):
+        return (
+            self._panel_cache_token,
+            float(self.u),
+            float(self.rho),
+            float(self.alpha),
+            float(self.beta),
+        )
+
+    def invalidate_state(self):
+        """Invalidate all derived geometry, solver, and result data."""
+        self.wing_geometry = None
+        self.hs_geometry = None
+        self.vs_geometry = None
+        self.panel_data = None
+        self.discretization = None
+        self.wing_area = 0
+        self.panel_areas = None
+        self.dz_c = None
+        self.n_hs = self.m_hs = 0
+        self.n_vs = self.m_vs = 0
+        self._geometry_cache_key = None
+        self._discretization_cache_key = None
+        self._panel_cache_token += 1
+        self._influence_cache.clear()
+        self._clear_solution_state()
+
+    def export_configuration(self, include_flight=True):
+        """Return the reproducible input configuration for this VLM case."""
+        configuration = json.loads(json.dumps(self.plane, default=float))
+        if include_flight:
+            configuration['flight_parameters'] = {
+                'u': float(self.u),
+                'rho': float(self.rho),
+                'alpha': float(self.alpha),
+                'beta': float(self.beta),
+                'n': int(self.n),
+                'm': int(self.m),
+            }
+        return configuration
+
+    @staticmethod
+    def configuration_checksum(configuration):
+        canonical = json.dumps(configuration, sort_keys=True, separators=(',', ':'), default=float)
+        return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+    def apply_configuration(self, configuration, include_flight=True):
+        """Apply a normalized configuration and invalidate all derived state."""
+        configuration = json.loads(json.dumps(configuration, default=float))
+        aliases = {
+            'wingsections': 'wing_sections',
+            'horizontalstabilizer': 'horizontal_stabilizer',
+            'verticalstabilizer': 'vertical_stabilizer',
+            'flightparameters': 'flight_parameters',
+        }
+        for old_key, new_key in aliases.items():
+            if old_key in configuration and new_key not in configuration:
+                configuration[new_key] = configuration.pop(old_key)
+        flight = configuration.pop('flight_parameters', None) if include_flight else None
+        self.plane = configuration
+        if flight:
+            self.u = float(flight.get('u', self.u))
+            self.rho = float(flight.get('rho', self.rho))
+            self.alpha = float(flight.get('alpha', self.alpha))
+            self.beta = float(flight.get('beta', self.beta))
+            self.n = int(flight.get('n', self.n))
+            self.m = int(flight.get('m', self.m))
+        self.invalidate_state()
+
+    def save_results(self, filename):
+        """Save calculated results as a JSON manifest and a NumPy NPZ payload."""
+        if not hasattr(self, 'gammas') or self.panel_data is None:
+            raise ValueError('Run the VLM solver before saving results')
+        base_path = Path(filename)
+        if base_path.suffix.lower() != '.json':
+            base_path = base_path.with_suffix('.json')
+        arrays_path = base_path.with_suffix('.npz')
+        arrays = {
+            'P_ij': np.asarray(self.P_ij),
+            'P_ij_resis': np.asarray(self.P_ij_resis),
+            'w_i': np.asarray(self.w_i),
+            'gammas': np.asarray(self.gammas),
+            'lift_wing2': np.asarray(self.lift_wing2),
+            'drag_wing2': np.asarray(self.drag_wing2),
+            'panel_areas': np.asarray(self.panel_areas),
+            'lift_wing': np.asarray(self.lift_sum['lift_wing']),
+            'lift_hs': np.asarray(self.lift_sum['lift_hs']),
+            'lift_vs': np.asarray(self.lift_sum['lift_vs']),
+            'drag_wing': np.asarray(self.drag_sum['drag_wing']),
+            'drag_hs': np.asarray(self.drag_sum['drag_hs']),
+            'drag_vs': np.asarray(self.drag_sum['drag_vs']),
+            'CL_locals_wing': np.asarray(self.CL_locals['CL_wing']),
+            'CL_locals_hs': np.asarray(self.CL_locals['CL_hs']),
+            'CL_locals_vs': np.asarray(self.CL_locals['CL_vs']),
+            'CD_locals_wing': np.asarray(self.CD_locals['CD_wing']),
+            'CD_locals_hs': np.asarray(self.CD_locals['CD_hs']),
+            'CD_locals_vs': np.asarray(self.CD_locals['CD_vs']),
+        }
+        np.savez_compressed(arrays_path, **arrays)
+        configuration = self.export_configuration(include_flight=True)
+        summary = {
+            'CL': float(self.CL), 'CD': float(self.CD),
+            'lift': float(self.lift), 'drag': float(self.drag),
+            'force_coefficients': {
+                key: float(value) for key, value in self.force_coefficients.items()
+            },
+            'moment_coefficients': {
+                key: float(value) for key, value in self.moment_coefficients.items()
+            },
+        }
+        if getattr(self, 'static_derivatives', None) is not None:
+            summary['static_derivatives'] = self.static_derivatives
+        manifest = {
+            'schema': 'vlmpy.results',
+            'schema_version': 1,
+            'configuration': configuration,
+            'configuration_checksum': self.configuration_checksum(configuration),
+            'summary': summary,
+            'arrays': {
+                'file': arrays_path.name,
+                'keys': {key: {'shape': list(value.shape), 'dtype': str(value.dtype)} for key, value in arrays.items()},
+            },
+        }
+        base_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+        return manifest
+
+    def load_results(self, filename):
+        """Load validated solver arrays from a JSON manifest and NPZ payload."""
+        manifest_path = Path(filename)
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if manifest.get('schema') != 'vlmpy.results' or manifest.get('schema_version') != 1:
+            raise ValueError('Unsupported results file schema')
+        configuration = manifest.get('configuration')
+        if not isinstance(configuration, dict):
+            raise ValueError('Results manifest has no configuration')
+        if self.configuration_checksum(configuration) != manifest.get('configuration_checksum'):
+            raise ValueError('Results configuration checksum is invalid')
+        if self.panel_data is None:
+            self.calculate_discretization()
+        arrays_path = manifest_path.parent / manifest['arrays']['file']
+        with np.load(arrays_path, allow_pickle=False) as loaded:
+            arrays = {key: np.asarray(loaded[key]) for key in manifest['arrays']['keys']}
+        expected_count = len(self.panel_data) if self.panel_data is not None else arrays['gammas'].size
+        if arrays['gammas'].size != expected_count:
+            raise ValueError('Results panel count is incompatible with the current case')
+        for key, value in arrays.items():
+            if not np.isfinite(value).all():
+                raise ValueError(f'Results array contains non-finite values: {key}')
+        for key, value in arrays.items():
+            setattr(self, key, value)
+        summary = manifest['summary']
+        self.CL = float(summary['CL'])
+        self.CD = float(summary['CD'])
+        self.lift = float(summary['lift'])
+        self.drag = float(summary['drag'])
+        self.lift_sum = {f'lift_{key}': arrays[f'lift_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.drag_sum = {f'drag_{key}': arrays[f'drag_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.CL_locals = {f'CL_{key}': arrays[f'CL_locals_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.CD_locals = {f'CD_{key}': arrays[f'CD_locals_{key}'] for key in ('wing', 'hs', 'vs')}
+        self.lift_wing = self.lift_sum['lift_wing']
+        self.lift_hs = self.lift_sum['lift_hs']
+        self.lift_vs = self.lift_sum['lift_vs']
+        self.drag_wing = self.drag_sum['drag_wing']
+        self.drag_hs = self.drag_sum['drag_hs']
+        self.drag_vs = self.drag_sum['drag_vs']
+        self.CL_locals_wing = self.CL_locals['CL_wing']
+        self.CL_locals_hs = self.CL_locals['CL_hs']
+        self.CL_locals_vs = self.CL_locals['CL_vs']
+        self.CD_locals_wing = self.CD_locals['CD_wing']
+        self.CD_locals_hs = self.CD_locals['CD_hs']
+        self.CD_locals_vs = self.CD_locals['CD_vs']
+        self.u_ = calculate_w_i(
+            self.panel_data, self.u, self.dz_c, self.alpha, self.beta
+        )[3]
+        self.aerodynamic_coefficients = _calculate_aerodynamic_coefficients(self)
+        self.force_coefficients = self.aerodynamic_coefficients['force_coefficients']
+        self.moment_coefficients = self.aerodynamic_coefficients['moment_coefficients']
+        self.CX, self.CY, self.CZ = (
+            self.force_coefficients[key] for key in ('CX', 'CY', 'CZ')
+        )
+        self.Cl, self.Cm, self.Cn = (
+            self.moment_coefficients[key] for key in ('Cl', 'Cm', 'Cn')
+        )
+        self.static_derivatives = manifest.get('summary', {}).get('static_derivatives')
+        self._solution_state_key = self._solution_cache_key()
+        self.results = manifest
+        return manifest
 
     def save_and_load_plane_variables(self, filename='data/plane_variables.txt', option='save_and_load'):
         # Save and load plane variables to/from a text file
@@ -110,60 +330,105 @@ class VLM:
             self.plane = json.load(f)
 
     def calculate_geometry(self):
+        stage_start = time.perf_counter()
+        cache_key = self._plane_cache_key()
+        if cache_key == self._geometry_cache_key:
+            self.timings['geometry_cache_hit'] = True
+            return
+
         # Get total wing span
+        self.total_wing_span = 0
         for section in self.plane['wing_sections']:
             self.wing_span = section['span_fraction']
             self.total_wing_span += self.wing_span
 
         # Wing geometry
         self.wing_geometry, self.hs_geometry, self.vs_geometry = calculate_geometry(self)
+        self._geometry_cache_key = cache_key
+        self._discretization_cache_key = None
+        self._influence_cache.clear()
+        self._clear_solution_state()
+        self.timings['geometry'] = time.perf_counter() - stage_start
+        self.timings['geometry_cache_hit'] = False
 
     def calculate_discretization(self):
-        # Determine panel density
-        wing_panel_density = self.n / self.total_wing_span
-        wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
+        stage_start = time.perf_counter()
+        self.calculate_geometry()
+        cache_key = (self._geometry_cache_key, int(self.n), int(self.m))
+        if cache_key == self._discretization_cache_key:
+            self.timings['discretization_cache_hit'] = True
+            return
 
-        # Calculate n_hs, m_hs, n_vs, m_vs
-        if 'horizontal_stabilizer' in self.plane:
-            self.n_hs = int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction']))
-            self.m_hs = int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root']))
+        max_attempts = 20
+        for attempt in range(max_attempts):
+            wing_panel_density = self.n / self.total_wing_span
+            wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
+
+            if 'horizontal_stabilizer' in self.plane:
+                self.n_hs = max(1, int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction'])))
+                self.m_hs = max(1, int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root'])))
+            else:
+                self.n_hs, self.m_hs = 0, 0
+
+            if 'vertical_stabilizer' in self.plane:
+                self.n_vs = max(1, int(np.round(wing_panel_density * self.plane['vertical_stabilizer']['span_fraction'])))
+                self.m_vs = max(1, int(np.round(wing_panel_density_chord * self.plane['vertical_stabilizer']['chord_root'])))
+            else:
+                self.n_vs, self.m_vs = 0, 0
+
+            wing_vertical_points, wing_horizontal_points, wing_z_points = interpolate_wing_points(self, type="wing")
+            self.discretization = {'wing': {'vertical_points': wing_vertical_points, 'horizontal_points': wing_horizontal_points, 'z_points': wing_z_points}}
+
+            if 'horizontal_stabilizer' in self.plane:
+                hs_vertical_points, hs_horizontal_points, hs_z_points = interpolate_wing_points(self, type="hs")
+                self.discretization['horizontal_stabilizer'] = {'vertical_points': hs_vertical_points, 'horizontal_points': hs_horizontal_points, 'z_points': hs_z_points}
+
+            if 'vertical_stabilizer' in self.plane:
+                vs_vertical_points, vs_horizontal_points, vs_z_points = interpolate_wing_points(self, type="vs")
+                self.discretization['vertical_stabilizer'] = {'vertical_points': vs_vertical_points, 'horizontal_points': vs_horizontal_points, 'z_points': vs_z_points}
+
+            self.panel_data, self.wing_area, self.panel_areas = generate_plane_panels(self)
+            self.dz_c = curvature(self)
+            if len(self.dz_c) == len(self.panel_data):
+                break
+
+            print(f"Discretization retry {attempt + 1}: dz_c={len(self.dz_c)}, panels={len(self.panel_data)}; increasing n and m")
+            self.n += 1
+            self.m += 1
         else:
-            self.n_hs, self.m_hs = 0, 0
+            raise ValueError(
+                f"Could not adjust discretization after {max_attempts} attempts: "
+                f"len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}"
+            )
 
-        if 'vertical_stabilizer' in self.plane:
-            self.n_vs = int(np.round(wing_panel_density * self.plane['vertical_stabilizer']['span_fraction']))
-            self.m_vs = int(np.round(wing_panel_density_chord * self.plane['vertical_stabilizer']['chord_root']))
-        else:
-            self.n_vs, self.m_vs = 0, 0
-
-        # Generate discretization points
-        wing_vertical_points, wing_horizontal_points, wing_z_points = interpolate_wing_points(self, type="wing")
-        self.discretization = {'wing': {'vertical_points': wing_vertical_points, 'horizontal_points': wing_horizontal_points, 'z_points': wing_z_points}}
-
-        if 'horizontal_stabilizer' in self.plane:
-            hs_vertical_points, hs_horizontal_points, hs_z_points = interpolate_wing_points(self, type="hs")
-            self.discretization['horizontal_stabilizer'] = {'vertical_points': hs_vertical_points, 'horizontal_points': hs_horizontal_points, 'z_points': hs_z_points}
-
-        if 'vertical_stabilizer' in self.plane:
-            vs_vertical_points, vs_horizontal_points, vs_z_points = interpolate_wing_points(self, type="vs")
-            self.discretization['vertical_stabilizer'] = {'vertical_points': vs_vertical_points, 'horizontal_points': vs_horizontal_points, 'z_points': vs_z_points}
-
-        # Generate panels
-        self.panel_data, self.wing_area, self.panel_areas = generate_plane_panels(self)
-        print(f"wing_area: {self.wing_area}")
-
-        # Curvature calculation
-        self.dz_c = curvature(self)
-        print(f"Length of dz_c: {len(self.dz_c)}")
-        print(f"Length of panel_data: {len(self.panel_data)}")
-
-        # Consistency check
-        if len(self.dz_c) != len(self.panel_data):
-            raise ValueError(f"Inconsistencia: len(dz_c) = {len(self.dz_c)} != len(panel_data) = {len(self.panel_data)}")
+        self._discretization_cache_key = (self._geometry_cache_key, int(self.n), int(self.m))
+        self._panel_cache_token += 1
+        self._influence_cache.clear()
+        self._clear_solution_state()
+        self.timings['discretization'] = time.perf_counter() - stage_start
+        self.timings['discretization_cache_hit'] = False
 
     def calculate_wing_lift(self):
+        stage_start = time.perf_counter()
+        self.calculate_discretization()
+        solution_key = self._solution_cache_key()
+        if solution_key == self._solution_state_key:
+            influence_key = (self._panel_cache_token, float(self.alpha), float(self.beta))
+            self.timings['influence_cache_hit'] = influence_key in self._influence_cache
+            self.timings['solution_cache_hit'] = True
+            return
+
         # Calculate wing lift
         self.w_i, self.P_ij, self.gammas, self.lift_wing2, self.lift, self.lift_sum, self.CL, self.CL_locals, self.drag_wing2, self.drag, self.drag_sum, self.CD, self.CD_locals = plane(self)
+        self.aerodynamic_coefficients = _calculate_aerodynamic_coefficients(self)
+        self.force_coefficients = self.aerodynamic_coefficients['force_coefficients']
+        self.moment_coefficients = self.aerodynamic_coefficients['moment_coefficients']
+        self.CX, self.CY, self.CZ = (
+            self.force_coefficients[key] for key in ('CX', 'CY', 'CZ')
+        )
+        self.Cl, self.Cm, self.Cn = (
+            self.moment_coefficients[key] for key in ('Cl', 'Cm', 'Cn')
+        )
 
         self.lift_wing = self.lift_sum['lift_wing']
         if 'horizontal_stabilizer' in self.plane:
@@ -188,6 +453,9 @@ class VLM:
             self.CD_locals_hs = self.CD_locals['CD_hs']
         if 'vertical_stabilizer' in self.plane:
             self.CD_locals_vs = self.CD_locals['CD_vs']
+        self._solution_state_key = solution_key
+        self.timings['solution'] = time.perf_counter() - stage_start
+        self.timings['solution_cache_hit'] = False
 
     def compute_coefficients_vs_alpha(self, angles_deg):
         """
@@ -203,29 +471,178 @@ class VLM:
         angles_rad = np.radians(angles_deg)
         cl_values = []
         cd_values = []
+        coefficient_values = {name: [] for name in ('CX', 'CY', 'CZ', 'Cl', 'Cm', 'Cn')}
 
         original_alpha = self.alpha
 
-        for alpha in angles_rad:
-            self.alpha = alpha
-            self.calculate_geometry()
-            self.calculate_discretization()
+        try:
+            for alpha in angles_rad:
+                self.alpha = alpha
+                self.calculate_wing_lift()
+                cl_values.append(self.CL)
+                cd_values.append(self.CD)
+                for name in coefficient_values:
+                    coefficient_values[name].append(getattr(self, name))
+        finally:
+            self.alpha = original_alpha
+            self._geometry_cache_key = None
+            self._discretization_cache_key = None
             self.calculate_wing_lift()
-            cl_values.append(self.CL)
-            cd_values.append(self.CD)
 
-        self.alpha = original_alpha
-
-        self.results = {
+        sweep_results = {
             'angles_deg': angles_deg,
             'CL': cl_values,
-            'CD': cd_values
+            'CD': cd_values,
+            **coefficient_values,
         }
 
+        self.results = sweep_results
+        return sweep_results
+
     def run_vlm(self):
-        self.calculate_geometry()
-        self.calculate_discretization()
         self.calculate_wing_lift()
+
+    def calculate_static_derivatives(self, step_deg=0.1):
+        """Estimate static coefficient derivatives by central differences per radian."""
+        step_deg = float(step_deg)
+        if not np.isfinite(step_deg) or step_deg <= 0:
+            raise ValueError('step_deg must be a positive finite number')
+        step = np.radians(step_deg)
+        coefficient_names = ('CX', 'CY', 'CZ', 'Cl', 'Cm', 'Cn')
+        plane = copy.deepcopy(self.plane)
+        alpha = self.alpha
+        beta = self.beta
+        n, m = self.n, self.m
+        results = self.results
+
+        def evaluate(plane, alpha, beta):
+            self.plane = copy.deepcopy(plane)
+            self.alpha = alpha
+            self.beta = beta
+            self.invalidate_state()
+            self.calculate_wing_lift()
+            return np.array([getattr(self, name) for name in coefficient_names], dtype=float)
+
+        def derivative(plane_plus, alpha_plus, beta_plus, plane_minus, alpha_minus, beta_minus):
+            plus = evaluate(plane_plus, alpha_plus, beta_plus)
+            minus = evaluate(plane_minus, alpha_minus, beta_minus)
+            return (plus - minus) / (2 * step)
+
+        try:
+            alpha_derivative = derivative(
+                plane, alpha + step, beta,
+                plane, alpha - step, beta,
+            )
+            beta_derivative = derivative(
+                plane, alpha, beta + step,
+                plane, alpha, beta - step,
+            )
+            control_derivatives = {}
+            for section_index, section in enumerate(plane.get('wing_sections', [])):
+                if 'deflection_angle' not in section:
+                    continue
+                plane_plus = copy.deepcopy(plane)
+                plane_minus = copy.deepcopy(plane)
+                plane_plus['wing_sections'][section_index]['deflection_angle'] = float(section['deflection_angle']) + step
+                plane_minus['wing_sections'][section_index]['deflection_angle'] = float(section['deflection_angle']) - step
+                control_derivatives[f'wing_section_{section_index + 1}'] = derivative(
+                    plane_plus, alpha, beta,
+                    plane_minus, alpha, beta,
+                )
+        finally:
+            self.plane = plane
+            self.alpha = alpha
+            self.beta = beta
+            self.n, self.m = n, m
+            self.invalidate_state()
+            self.calculate_wing_lift()
+            self.results = results
+
+        derivative_names = tuple(f'd{name}_dalpha' for name in coefficient_names)
+        beta_names = tuple(f'd{name}_dbeta' for name in coefficient_names)
+        control_names = tuple(f'd{name}_ddelta' for name in coefficient_names)
+        derivatives = {
+            'step_deg': step_deg,
+            'units': 'per radian',
+            'alpha': dict(zip(derivative_names, map(float, alpha_derivative))),
+            'beta': dict(zip(beta_names, map(float, beta_derivative))),
+            'controls': {
+                name: dict(zip(control_names, map(float, values)))
+                for name, values in control_derivatives.items()
+            },
+        }
+        self.static_derivatives = derivatives
+        return derivatives
+
+
+def _calculate_aerodynamic_coefficients(vlm):
+    wing_sections = vlm.plane['wing_sections']
+    span = sum(float(section['span_fraction']) for section in wing_sections)
+    reference_area = sum(
+        float(section['span_fraction'])
+        * (float(section['chord_root']) + float(section['chord_tip'])) / 2
+        for section in wing_sections
+    )
+    if reference_area <= 0 or span <= 0:
+        raise ValueError('Wing reference dimensions must be positive')
+    mean_aerodynamic_chord = sum(
+        float(section['span_fraction'])
+        * (
+            float(section['chord_root']) ** 2
+            + float(section['chord_root']) * float(section['chord_tip'])
+            + float(section['chord_tip']) ** 2
+        ) / 3
+        for section in wing_sections
+    ) / reference_area
+    if mean_aerodynamic_chord <= 0:
+        raise ValueError('Wing reference dimensions must be positive')
+
+    wing_panel_count = vlm.n * vlm.m
+    wing_panels = vlm.panel_data[:wing_panel_count]
+    wing_areas = np.asarray(vlm.panel_areas[:wing_panel_count], dtype=float)
+    quarter_chord_centers = np.asarray([
+        (np.asarray(panel[2][0], dtype=float) + np.asarray(panel[2][1], dtype=float)) / 2
+        for panel in wing_panels
+    ])[:, [1, 0, 2]]
+    reference_point = np.average(quarter_chord_centers, axis=0, weights=wing_areas)
+
+    bound_segments = np.asarray([
+        np.asarray(panel[2][1], dtype=float) - np.asarray(panel[2][0], dtype=float)
+        for panel in vlm.panel_data
+    ])[:, [1, 0, 2]]
+    freestream = np.asarray([vlm.u_[1], vlm.u_[0], vlm.u_[2]], dtype=float)
+    speed = np.linalg.norm(freestream)
+    if speed <= 0:
+        raise ValueError('Freestream speed must be positive to calculate coefficients')
+
+    lift_forces = vlm.rho * vlm.gammas[:, None] * np.cross(freestream, bound_segments)
+    induced_velocity = vlm.P_ij_resis @ vlm.gammas
+    panel_lengths = np.linalg.norm(bound_segments, axis=1)
+    induced_drag = -vlm.rho * induced_velocity * vlm.gammas * panel_lengths
+    panel_forces = lift_forces - induced_drag[:, None] * freestream[None, :] / speed
+    force = panel_forces.sum(axis=0)
+    panel_positions = np.asarray([
+        (np.asarray(panel[2][0], dtype=float) + np.asarray(panel[2][1], dtype=float)) / 2
+        for panel in vlm.panel_data
+    ])[:, [1, 0, 2]]
+    moment = np.cross(panel_positions - reference_point, panel_forces).sum(axis=0)
+
+    dynamic_pressure = 0.5 * vlm.rho * speed ** 2
+    force_scale = dynamic_pressure * reference_area
+    moment_scale = force_scale * np.array([span, mean_aerodynamic_chord, span])
+    return {
+        'force_coefficients': dict(zip(('CX', 'CY', 'CZ'), force / force_scale)),
+        'moment_coefficients': dict(zip(('Cl', 'Cm', 'Cn'), moment / moment_scale)),
+        'reference': {
+            'area': reference_area,
+            'span': span,
+            'mean_aerodynamic_chord': mean_aerodynamic_chord,
+            'point': reference_point,
+        },
+        'force': force,
+        'moment': moment,
+    }
+
 
 """ # Calculate the aerodynamic influence coefficient matrix
 def calculate_P_ij_(panel_data, u, dz_c, alpha, beta):
@@ -287,67 +704,119 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
     - P_ij: Coefficient matrix P_ij
     """
     n_controls = len(panel_data)
-    P_ij = np.zeros((n_controls, n_controls))
-    P_ij_resis = np.zeros((n_controls, n_controls))
-    w_i, normal_vector_, panel_length, u_ = calculate_w_i(panel_data, u, dz_c, alpha, beta)
+    if n_controls == 0:
+        raise ValueError("panel_data must contain at least one panel")
 
-    for i, panel_i in enumerate(panel_data):
-        xi, yi, zi = panel_i[3]  # Control point for panel i
+    w_i, normal_vector_, panel_length, u_ = calculate_w_i(
+        panel_data, u, dz_c, alpha, beta
+    )
 
-        normal_vector = normal_vector_[i]
+    # Keep the existing coordinate convention: the solver swaps x and y
+    # when constructing the vortex and control-point vectors.
+    control_points = np.asarray([panel[3] for panel in panel_data], dtype=float)
+    vortex_nodes = np.asarray(
+        [[panel[2][0], panel[2][1]] for panel in panel_data], dtype=float
+    )
+    control_points = control_points[:, [1, 0, 2]]
+    vortex_nodes = vortex_nodes[:, :, [1, 0, 2]]
 
-        for j, panel_j in enumerate(panel_data):
-            xj, yj, zj = panel_j[2][0]  # Node 1 of panel j
-            xjf, yjf, zjf = panel_j[2][1]  # Node 2 of panel j
+    r1 = control_points[:, None, :] - vortex_nodes[None, :, 0, :]
+    r2 = control_points[:, None, :] - vortex_nodes[None, :, 1, :]
+    r1_inverse = -r1
+    r2_inverse = -r2
+    r0 = vortex_nodes[None, :, 1, :] - vortex_nodes[None, :, 0, :]
 
-            # Vortex Head
-            C = np.array([yi, xi, zi]) # Control point
-            A = np.array([yj, xj, zj]) # Node 1
-            B = np.array([yjf, xjf, zjf]) # Node 2
+    r1_norm = np.linalg.norm(r1, axis=2)
+    r2_norm = np.linalg.norm(r2, axis=2)
+    cross_r1_r2 = np.cross(r1, r2)
+    cross_norm_squared = np.sum(cross_r1_r2 * cross_r1_r2, axis=2)
 
-            # Vector AC, BC, AB
-            r1  = C - A # Vector AC
-            r1_ = A - C # Vector CA
+    r0r1 = np.sum(r0 * r1, axis=2)
+    r0r2 = np.sum(r0 * r2, axis=2)
+    omega = np.zeros_like(r1_norm)
+    valid_omega = (r1_norm > 1e-12) & (r2_norm > 1e-12)
+    omega[valid_omega] = (
+        r0r1[valid_omega] / r1_norm[valid_omega]
+        - r0r2[valid_omega] / r2_norm[valid_omega]
+    )
 
-            r2  = C - B # Vector BC
-            r2_ = B - C # Vector CB
+    psi = np.zeros_like(cross_r1_r2)
+    valid_psi = cross_norm_squared > 1e-24
+    psi[valid_psi] = (
+        cross_r1_r2[valid_psi]
+        / cross_norm_squared[valid_psi, None]
+    )
+    v_ab = psi * omega[:, :, None] / (4 * np.pi)
 
-            r0  = B - A # Vector AB
+    r1_x, r1_y, r1_z = r1[:, :, 0], r1[:, :, 1], r1[:, :, 2]
+    r2_x, r2_y, r2_z = r2[:, :, 0], r2[:, :, 1], r2[:, :, 2]
+    r1_inverse_y = r1_inverse[:, :, 1]
+    r2_inverse_y = r2_inverse[:, :, 1]
+    denominator_a = r1_z ** 2 + r1_inverse_y ** 2
+    denominator_b = r2_z ** 2 + r2_inverse_y ** 2
+    factor_a = np.zeros_like(r1_norm)
+    factor_b = np.zeros_like(r2_norm)
+    valid_a = r1_norm > 1e-6
+    valid_b = r2_norm > 1e-6
+    factor_a[valid_a] = (1 + r1_x[valid_a] / r1_norm[valid_a]) / (4 * np.pi)
+    factor_b[valid_b] = (1 + r2_x[valid_b] / r2_norm[valid_b]) / (4 * np.pi)
 
-            r1_norm = np.linalg.norm(r1) # Magnitude of AC
-            r2_norm = np.linalg.norm(r2) # Magnitude of BC
-            
-            # V_AB
-            cross_r1_r2 = np.cross(r1, r2) # Cross product between AC and BC (panel normal vector)
-            cross_r1_r2_norm = np.linalg.norm(cross_r1_r2) # Magnitude of the normal vector
+    v_a_inf = np.zeros_like(v_ab)
+    valid_a_j = valid_a & (r1_z ** 2 > 1e-6)
+    valid_a_k = valid_a & (r1_inverse_y ** 2 > 1e-6)
+    v_a_inf[:, :, 1][valid_a_j] = (
+        r1_z[valid_a_j] / denominator_a[valid_a_j] * factor_a[valid_a_j]
+    )
+    v_a_inf[:, :, 2][valid_a_k] = (
+        r1_inverse_y[valid_a_k] / denominator_a[valid_a_k] * factor_a[valid_a_k]
+    )
 
-            r0r1 = np.dot(r0, r1) # Dot product between AB and AC
-            r0r2 = np.dot(r0, r2) # Dot product between AB and BC
-            
-            psi = cross_r1_r2 / np.abs(cross_r1_r2_norm)**2 if cross_r1_r2_norm > 1e-12 else np.zeros(3) # Normal vector divided by squared magnitude
-            omega = r0r1 / r1_norm - r0r2 / r2_norm if r1_norm > 1e-12 and r2_norm > 1e-12 else 0
-            V_AB = np.dot(psi, omega) / (4 * np.pi)
-            V_AB_ = V_AB[1] * normal_vector[1] + V_AB[2] * normal_vector[2]
-            
-            # Calculation of V_AInf and V_BInf as vectors
-            V_AInf = np.zeros(3)
-            # j-component
-            V_AInf[1] = (r1[2] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1[2]**2 > 1e-6 else 0
-            # k-component
-            V_AInf[2] = (r1_[1] / (r1[2]**2 + r1_[1]**2)) * (1 + r1[0] / r1_norm) / (4 * np.pi) if r1_norm > 1e-6 and r1_[1]**2 > 1e-6 else 0
-            V_AInf_ = V_AInf[1] * normal_vector[1] + V_AInf[2] * normal_vector[2]
+    v_b_inf = np.zeros_like(v_ab)
+    valid_b_j = valid_b & (r2_z ** 2 > 1e-6)
+    valid_b_k = valid_b & (r2_inverse_y ** 2 > 1e-6)
+    v_b_inf[:, :, 1][valid_b_j] = (
+        -r2_z[valid_b_j] / denominator_b[valid_b_j] * factor_b[valid_b_j]
+    )
+    v_b_inf[:, :, 2][valid_b_k] = (
+        -r2_inverse_y[valid_b_k] / denominator_b[valid_b_k] * factor_b[valid_b_k]
+    )
 
-            V_BInf = np.zeros(3)
-            # j-component
-            V_BInf[1] = - (r2[2] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2[2]**2 > 1e-6 else 0
-            # k-component
-            V_BInf[2] = - (r2_[1] / (r2[2]**2 + r2_[1]**2)) * (1 + r2[0] / r2_norm) / (4 * np.pi) if r2_norm > 1e-6 and r2_[1]**2 > 1e-6 else 0
-            V_BInf_ =  V_BInf[1] * normal_vector[1] + V_BInf[2] * normal_vector[2]
+    normal_x = normal_vector_[:, 0][:, None]
+    normal_y = normal_vector_[:, 1][:, None]
+    normal_z = normal_vector_[:, 2][:, None]
+    v_ab_normal = v_ab[:, :, 0] * normal_x + v_ab[:, :, 1] * normal_y + v_ab[:, :, 2] * normal_z
+    v_inf_normal = (
+        v_a_inf[:, :, 0] * normal_x
+        + v_a_inf[:, :, 1] * normal_y
+        + v_a_inf[:, :, 2] * normal_z
+        + v_b_inf[:, :, 0] * normal_x
+        + v_b_inf[:, :, 1] * normal_y
+        + v_b_inf[:, :, 2] * normal_z
+    )
 
-            # Construction of the coefficient matrix
-            P_ij[i, j] = V_AB_ + V_AInf_ + V_BInf_
-            P_ij_resis[i, j] = V_AInf_ + V_BInf_
-            
+    P_ij_resis = v_inf_normal
+    P_ij = v_ab_normal + P_ij_resis
+
+    print("---- VLM diagnostics ----")
+    print(
+        "U_inf =",
+        np.linalg.norm(u)
+    )
+
+    print(
+        "normal norm:",
+        np.min(np.linalg.norm(normal_vector_, axis=1)),
+        np.mean(np.linalg.norm(normal_vector_, axis=1)),
+        np.max(np.linalg.norm(normal_vector_, axis=1))
+    )
+
+    print(
+        "w:",
+        np.mean(np.abs(w_i)),
+        np.max(np.abs(w_i)),
+        np.max(np.abs(w_i)) / np.linalg.norm(u_)
+    )
+
     return P_ij, P_ij_resis, w_i, panel_length, u_
 
 def calculate_w_i(panel_data, u, dz_c, alpha, beta):
@@ -365,14 +834,12 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
         normal = panel_i[4][0]
         normal_ = np.array([normal[1], normal[0], normal[2]])
 
-        # Panel length calculation
+        # Panel length calculation (spanwise width, used for Kutta-Joukowski lift/drag integration)
         panel_length[i] = np.linalg.norm(np.array(panel_i[1][0]) - np.array(panel_i[1][3]))
 
-        # Curvature calculation
-        if panel_length[i] != 0:  # Cero division guard
-            deltaZ[i] = dz_c[i] / panel_length[i]
-        else:
-            deltaZ[i] = 0
+        # dz_c already holds the local camber slope (dz/dx); it must NOT be divided by the
+        # spanwise panel_length, otherwise the slope diverges as the spanwise mesh is refined.
+        deltaZ[i] = dz_c[i]
         deltaP = np.atan(deltaZ[i])
 
         cos_deltaP = np.cos(deltaP)
@@ -382,6 +849,10 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
             [0, 1, 0],
             [sin_deltaP, 0, cos_deltaP]])
         normal_vector_[i] = np.dot(normal_, A)
+        norm = np.linalg.norm(normal_vector_[i])
+        if norm < 1e-12:
+            raise ValueError(f"Normal nula en panel {i}")
+        normal_vector_[i] /= norm
         normal_vector = normal_vector_[i]
 
         Talpha = np.array([
@@ -389,8 +860,8 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
             [0, 1, 0],
             [np.sin(alpha), 0, np.cos(alpha)]])
         Tbeta = np.array([
-            [np.cos(beta), np.sin(beta), 0],
-            [-np.sin(beta), np.cos(beta), 0],
+            [np.cos(beta), -np.sin(beta), 0],
+            [np.sin(beta), np.cos(beta), 0],
             [0, 0, 1]])
         u_ = np.dot(Tbeta, np.dot(Talpha, np.array([0, 1, 0]))) * u
         w_i[i] = -np.dot(np.array([u_[1], u_[0], u_[2]]), normal_vector)
@@ -409,12 +880,31 @@ def plane(self):
     wing_area      = self.wing_area
     panel_areas    = self.panel_areas
 
-    # 2. System resulotion P·γ = w
-    P_ij, P_ij_resis, w_i, panel_lengths, self.u_ = calculate_P_ij(panel_data, u, dz_c, alpha, beta)
-    gammas    = np.linalg.solve(P_ij, w_i)
+    # 2. System resolution P·gamma = w
+    influence_key = (self._panel_cache_token, float(alpha), float(beta))
+    influence_start = time.perf_counter()
+    cached_influence = self._influence_cache.get(influence_key)
+    if cached_influence is None:
+        P_ij, P_ij_resis, w_i, panel_lengths, self.u_ = calculate_P_ij(
+            panel_data, u, dz_c, alpha, beta
+        )
+        self._influence_cache[influence_key] = (P_ij, P_ij_resis, panel_lengths)
+        self.timings['influence_cache_hit'] = False
+    else:
+        P_ij, P_ij_resis, panel_lengths = cached_influence
+        self.P_ij_resis = P_ij_resis
+        w_i, _, _, self.u_ = calculate_w_i(panel_data, u, dz_c, alpha, beta)
+        self.timings['influence_cache_hit'] = True
+    self.timings['influence_matrix'] = time.perf_counter() - influence_start
+
+    solve_start = time.perf_counter()
+    self.P_ij_resis = P_ij_resis
+    gammas = np.linalg.solve(P_ij, w_i)
+    self.timings['linear_solve'] = time.perf_counter() - solve_start
     W_i       = P_ij_resis.dot(gammas)
 
     # 3. Dynamic pressure (total and local)
+    postprocess_start = time.perf_counter()
     q_total = 0.5 * rho * u**2 * wing_area      # total dynamic pressure (wing area)
     q_local = 0.5 * rho * u**2                  # local dynamic pressure (per panel)
 
@@ -443,7 +933,7 @@ def plane(self):
         mat_A = areas.reshape(n_sub, m_sub)
 
         sum_fila   = mat_f.sum(axis=1)       # array length n_sub
-        total      = sum_fila.sum()          # escalar
+        total      = sum_fila.sum()          # scalar
 
         area_strip = mat_A.sum(axis=1)       # array length n_sub
         CL_local   = sum_fila / (q_local * area_strip)
@@ -527,6 +1017,22 @@ def plane(self):
     }
 
     # 16. Return all results
+    self.timings['postprocess'] = time.perf_counter() - postprocess_start
+
+    print(
+            "gamma:",
+            np.mean(np.abs(gammas)),
+            np.max(np.abs(gammas))
+        )
+    
+    print(
+        "CL:",
+        CL_total
+    )
+
+    print("n =", self.n, "m =", self.m)
+    
+
     return (
         w_i,
         P_ij,
@@ -615,7 +1121,7 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
         colorscale=colorscale,
         cmin=vmin,
         cmax=vmax,
-        colorbar=dict(title=legend, titleside='right', thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
         opacity=opacity,
         flatshading=False,
         name='Wing Heatmap',
@@ -714,7 +1220,7 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         z=dummy_z,
         colorscale=colorscale,
         showscale=True,
-        colorbar=dict(title=legend, titleside='right', thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
         visible=True
     )
     fig.add_trace(dummy_heatmap)
@@ -978,35 +1484,55 @@ def plot_distribution_all(fig, vlm, quantity='CL'):
 
 def plot_coefficient_vs_alpha(fig, self, coefficient='CL', title=None):
     """
-    Plot CL or CD vs angle of attack using precomputed results.
-    Calculates and displays the slope (pendiente) of the line (in radians).
+    Plot a precomputed aerodynamic coefficient against angle of attack.
+    Calculates and displays the coefficient slope per radian.
 
     Parameters:
-    - coefficient: 'CL' or 'CD'
+    - coefficient: An integrated force or moment coefficient in self.results
     - title: Optional title for the plot
 
     Returns:
     - fig: Plotly Figure object
     """
-    if coefficient not in self.results:
+    if not self.results or coefficient not in self.results:
         raise ValueError(f"'{coefficient}' not found in results.")
 
     x_deg = np.array(self.results['angles_deg'])
     y = np.array(self.results[coefficient])
     x_rad = np.radians(x_deg)
+    if x_rad.size < 2 or np.ptp(x_rad) == 0:
+        raise ValueError('At least two distinct angle-of-attack values are required')
 
     # Calculate the slope (pendiente) using linear regression in radians
     slope_rad, intercept = np.polyfit(x_rad, y, 1)
 
+    coefficient_labels = {
+        'CL': 'Lift coefficient',
+        'CD': 'Induced drag coefficient',
+        'CX': 'X-force coefficient',
+        'CY': 'Y-force coefficient',
+        'CZ': 'Z-force coefficient',
+        'Cl': 'Roll-moment coefficient',
+        'Cm': 'Pitch-moment coefficient',
+        'Cn': 'Yaw-moment coefficient',
+    }
+    if coefficient not in coefficient_labels:
+        raise ValueError(f"Unsupported aerodynamic coefficient: '{coefficient}'")
+
     if title is None:
-        title = f"{'Lift' if coefficient == 'CL' else 'Drag'} Coefficient vs Angle of Attack"
+        title = f'{coefficient_labels[coefficient]} vs angle of attack'
+    colors = {
+        'CL': '#0072b2', 'CD': '#d55e00', 'CX': '#e69f00',
+        'CY': '#009e73', 'CZ': '#56b4e9', 'Cl': '#cc79a7',
+        'Cm': '#f0e442', 'Cn': '#332288',
+    }
 
     fig.add_trace(go.Scatter(
         x=x_deg,
         y=y,
         mode='lines+markers',
         name=coefficient,
-        line=dict(color='blue'),
+        line=dict(color=colors[coefficient]),
         marker=dict(size=8)
     ))
 
@@ -1014,7 +1540,7 @@ def plot_coefficient_vs_alpha(fig, self, coefficient='CL', title=None):
     fig.add_annotation(
         xref='paper', yref='paper',
         x=0.05, y=0.95,
-        text=f"Slope (rad): {slope_rad:.4f}",
+        text=f"Slope per radian: {slope_rad:.4f}",
         showarrow=False,
         font=dict(size=14, color='red'),
         bgcolor='white'

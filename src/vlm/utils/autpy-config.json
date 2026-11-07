@@ -7,11 +7,11 @@
   },
   {
    "optionDest": "filenames",
-   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm/app.py"
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/src/vlm/app.py"
   },
   {
    "optionDest": "onefile",
-   "value": true
+   "value": false
   },
   {
    "optionDest": "console",
@@ -19,7 +19,7 @@
   },
   {
    "optionDest": "icon_file",
-   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/docs/img/icon.ico"
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/docs/img/icon.ico"
   },
   {
    "optionDest": "name",
@@ -27,7 +27,7 @@
   },
   {
    "optionDest": "upx_dir",
-   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm"
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/src/vlm"
   },
   {
    "optionDest": "clean_build",
@@ -35,7 +35,7 @@
   },
   {
    "optionDest": "splash",
-   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/docs/img/icon.svg"
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/docs/img/splash.png"
   },
   {
    "optionDest": "strip",
@@ -43,7 +43,7 @@
   },
   {
    "optionDest": "noupx",
-   "value": false
+   "value": true
   },
   {
    "optionDest": "hide_console",
@@ -52,6 +52,14 @@
   {
    "optionDest": "disable_windowed_traceback",
    "value": false
+  },
+  {
+   "optionDest": "version_file",
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/src/vlm/utils/version_info.txt"
+  },
+  {
+   "optionDest": "manifest",
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/src/vlm/utils/VLMPy.manifest"
   },
   {
    "optionDest": "uac_admin",
@@ -63,7 +71,7 @@
   },
   {
    "optionDest": "argv_emulation",
-   "value": true
+   "value": false
   },
   {
    "optionDest": "bootloader_ignore_signals",
@@ -71,11 +79,11 @@
   },
   {
    "optionDest": "datas",
-   "value": "C:/Users/javil/OneDrive - Universidad Alfonso X el Sabio/Documents/GitHub/VLMPy/src/vlm;vlm/"
+   "value": "C:/Users/javil/Documents/GitHub/VLMPy/src/vlm;vlm/"
   }
  ],
  "nonPyinstallerOptions": {
   "increaseRecursionLimit": true,
-  "manualArguments": ""
+  "manualArguments": "--exclude-module IPython --exclude-module pytest --exclude-module sympy --exclude-module tkinter.test --exclude-module scipy --exclude-module pandas --exclude-module numba --exclude-module llvmlite --exclude-module statsmodels --exclude-module pyarrow --exclude-module lxml --exclude-module openpyxl --exclude-module jedi --exclude-module zmq --exclude-module gevent --exclude-module kaleido"
  }
 }

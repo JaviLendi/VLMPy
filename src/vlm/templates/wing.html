@@ -1,21 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
-    <div class="form-section">
+<!-- Author: Javier Lendínez | SPDX-License-Identifier: AGPL-3.0-only -->
+<div class="container wing-layout app-page">
+    <div class="form-section wing-form-section">
         <div class="form-group-header">
-            <h2 style="margin: 0;">Plane Definition</h2>
+            <div>
+                <span class="results-eyebrow">AIRCRAFT DESIGN / 3D</span>
+                <h2>Plane Definition</h2>
+                <p class="wing-panel-subtitle">Define the aircraft, control surfaces and analysis resolution.</p>
+            </div>
             <button type="button" class="info-button" onclick="openInfo('plane-definition-info-popup')" aria-label="Show info about plane definition">
             <span class="material-icons" aria-hidden="true">info</span>
             </button>
         </div>
-        <div id="plane-definition-info-popup" class="info-popup" tabindex="-1">
-            <h4>Plane Definition Info</h4>
+        <div id="plane-definition-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+            <h4><span class="material-icons" aria-hidden="true">info</span>Plane Definition Info</h4>
+            <div class="info-body">
             <ul>
             <li><b>Flight Condition:</b>
                 <ul>
                 <li><b>Flight Velocity:</b> Aircraft speed in meters per second (m/s). Determines aerodynamic forces.</li>
                 <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³). Affects lift and drag calculations.</li>
-                <li><b>Angle of Attack:</b> Angle between the wing chord and the airflow (degrees). Influences lift and stall behavior.</li>
+                <li><b>Angle of Attack:</b> Incidence used by the inviscid VLM analysis to calculate aerodynamic loads. Stall is not modeled.</li>
                 <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees). Important for lateral stability.</li>
                 </ul>
             </li>
@@ -62,26 +68,29 @@
                 </ul>
             </li>
             </ul>
-            <button type="button" onclick="document.getElementById('plane-definition-info-popup').style.display='none'">Close</button>
+            </div>
+            <button type="button" class="info-footer" onclick="closeInfo('plane-definition-info-popup')">Close</button>
         </div>
-        <form id="wing-form" aria-label="Plane Definition Form">
+        <form id="wing-form" aria-label="Plane Definition Form" autocomplete="off">
             <!-- Flight Condition -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Flight Condition</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('flight-condition-info-popup').style.display='block'" aria-label="Show info about flight condition">
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Condition</span><h3>Flight Condition</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('flight-condition-info-popup')" aria-label="Show info about flight condition">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="flight-condition-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Flight Condition Info</h4>
+                <div id="flight-condition-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Flight Condition Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>Flight Velocity:</b> Speed of the aircraft in meters per second (m/s).</li>
                         <li><b>Air Density:</b> Density of air in kilograms per cubic meter (kg/m³).</li>
-                        <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming airflow (degrees).</li>
+                        <li><b>Angle of Attack:</b> Angle between the chord line and the oncoming flow, entered in degrees. The VLM estimates attached-flow loads and does not predict stall.</li>
                         <li><b>Side Slip Angle:</b> Angle between the aircraft's heading and its actual path (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('flight-condition-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('flight-condition-info-popup')">Close</button>
                 </div>
                 {% for field in [
                     {"label": "Flight Velocity (m/s):", "id": "flight-velocity", "name": "u", "value": default_parameters.u, "step": "any"},
@@ -97,15 +106,16 @@
             </section>
 
             <!-- Wing Geometry -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Wing Geometry</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('wing-geometry-info-popup').style.display='block'" aria-label="Show info about wing geometry">
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Main surface</span><h3>Wing Geometry</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('wing-geometry-info-popup')" aria-label="Show info about wing geometry">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="wing-geometry-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Wing Geometry Info</h4>
+                <div id="wing-geometry-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Wing Geometry Info</h4>
+                    <div class="info-body">
                     <p> Use the "Add Section" button to create multiple wing sections. For each section, define:</p>
                     <ul>
                         <li><b>Chord Root/Tip:</b> Length of the wing section at root/tip.</li>
@@ -118,7 +128,8 @@
                     <a> You can define a flap or aileron for each section by specifying its start and end positions along the chord, hinge chord fraction, deflection angle, and type (simple or plain).</a>
                     <p> Each section is defined relative to the previous one, allowing for complex wing shapes.</p>
                     <p> You can remove the last section using the "Remove Section" button.</p>
-                    <button type="button" onclick="document.getElementById('wing-geometry-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('wing-geometry-info-popup')">Close</button>
                 </div>
                 <div id="sections" aria-live="polite"></div>
                 <div class="button-group">
@@ -128,15 +139,16 @@
             </section>
 
             <!-- Horizontal Stabilizer -->
-            <section class="stabilizer-section">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Horizontal Stabilizer</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='block'" aria-label="Show info about horizontal stabilizer">
+            <section class="stabilizer-section wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Tail</span><h3>Horizontal Stabilizer</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('horizontal-stabilizer-info-popup')" aria-label="Show info about horizontal stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="horizontal-stabilizer-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Horizontal Stabilizer Info</h4>
+                <div id="horizontal-stabilizer-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Horizontal Stabilizer Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>X Translate:</b> Position along the fuselage (meters).</li>
                         <li><b>Z Translate:</b> Vertical position (meters).</li>
@@ -147,10 +159,11 @@
                         <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
                         <li><b>Alpha:</b> Angle of attack (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('horizontal-stabilizer-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('horizontal-stabilizer-info-popup')">Close</button>
                 </div>
                 <input type="hidden" name="horizontal_toggled[]" value="0">
-                <button type="button" class="toggle-button" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
+                <button type="button" class="toggle-buttons" onclick="toggleSection('horizontal-stabilizer-section', '[aria-controls=horizontal-stabilizer-section]')" aria-expanded="false" aria-controls="horizontal-stabilizer-section">
                     Toggle Horizontal Stabilizer
                 </button>
                 <div id="horizontal-stabilizer-section" class="form-group" style="display: none;">
@@ -175,15 +188,16 @@
             </section>
 
             <!-- Vertical Stabilizer -->
-            <section class="stabilizer-section">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Vertical Stabilizer</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='block'" aria-label="Show info about vertical stabilizer">
+            <section class="stabilizer-section wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Tail</span><h3>Vertical Stabilizer</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('vertical-stabilizer-info-popup')" aria-label="Show info about vertical stabilizer">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="vertical-stabilizer-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Vertical Stabilizer Info</h4>
+                <div id="vertical-stabilizer-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Vertical Stabilizer Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>X Translate:</b> Position along the fuselage (meters).</li>
                         <li><b>Z Translate:</b> Vertical position (meters).</li>
@@ -194,10 +208,11 @@
                         <li><b>Dihedral:</b> Dihedral angle (degrees).</li>
                         <li><b>Alpha:</b> Angle of attack (degrees).</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('vertical-stabilizer-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('vertical-stabilizer-info-popup')">Close</button>
                 </div>
                 <input type="hidden" name="vertical_toggled[]" value="0">
-                <button type="button" class="toggle-button" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
+                <button type="button" class="toggle-buttons" onclick="toggleSection('vertical-stabilizer-section', '[aria-controls=vertical-stabilizer-section]')" aria-expanded="false" aria-controls="vertical-stabilizer-section">
                     Toggle Vertical Stabilizer
                 </button>
                 <div id="vertical-stabilizer-section" class="form-group" style="display: none;">
@@ -221,20 +236,22 @@
             </section>
 
             <!-- Discretization -->
-            <section class="form-group">
-                <div class="form-group-header">
-                    <h3 style="margin: 0;">Discretization</h3>
-                    <button type="button" class="info-button" onclick="document.getElementById('discretization-info-popup').style.display='block'" aria-label="Show info about discretization">
+            <section class="form-group wing-card">
+                <div class="section-heading">
+                    <div><span class="results-eyebrow">Analysis</span><h3>Discretization</h3></div>
+                    <button type="button" class="info-button" onclick="openInfo('discretization-info-popup')" aria-label="Show info about discretization">
                         <span class="material-icons" aria-hidden="true">info</span>
                     </button>
                 </div>
-                <div id="discretization-info-popup" class="info-popup" tabindex="-1">
-                    <h4>Discretization Info</h4>
+                <div id="discretization-info-popup" class="info-popup" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+                    <h4><span class="material-icons" aria-hidden="true">info</span>Discretization Info</h4>
+                    <div class="info-body">
                     <ul>
                         <li><b>Panels Along Span:</b> Number of panels dividing the wing span.</li>
                         <li><b>Panels Along Chord:</b> Number of panels dividing the wing chord.</li>
                     </ul>
-                    <button type="button" onclick="document.getElementById('discretization-info-popup').style.display='none'">Close</button>
+                    </div>
+                    <button type="button" class="info-footer" onclick="closeInfo('discretization-info-popup')">Close</button>
                 </div>
                 <div class="input-group">
                     <label for="panels-span">Panels Along Span:</label>
@@ -246,58 +263,570 @@
                 </div>
             </section>
 
+        </form>
+
             <!-- Form Actions -->
-            <div class="buttons">
-                <button type="button" class="action-button" id="calculate-button" onclick="Calculate()">Calculate</button>
-                <button type="button" class="action-button" id="view-planform-button" onclick="plotData('/plot/geometry_2d', 'Wing_Geometry_2d')">Planform</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/discretization2D', 'Wing_Discretization2d')">Discretization 2D</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/geometry', 'Wing_Geometry')">Geometry 3D</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/discretization3D', 'Wing_Discretization3d')">Discretization 3D</button>
-                <button type="button" class="action-button" onclick="erasePlot()">Erase Plot</button>
-            </div>
-            <h3>Manage Plane Configuration</h3>
-            <div class="buttons">
+            <div class="buttons action-row wing-form-actions">
+                <button type="button" class="action-button wing-calculate-button" id="calculate-button" onclick="Calculate()">Calculate</button>
+                <button type="button" class="action-button wing-load-button" onclick="loadPlaneAdvanced()">Load</button>
                 <button type="button" class="action-button" onclick="savePlaneAdvanced()">Save</button>
-                <button type="button" class="action-button" onclick="loadPlaneAdvanced()">Load</button>
+                <button type="button" class="action-button" onclick="generate_stl()">Generate STL</button>
+                <button type="button" class="action-button" onclick="resetAllPlane()">Reset All</button>
                 <input type="file" id="file-input" accept=".json" style="display: none;" onchange="loadData(this)">
             </div>
-        </form>
     </div>
-    <div id="plot-area" aria-live="polite"></div>
+    <div class="form-section wing-preview-section" id="wing-preview-panel">
+        <div class="form-group-header">
+            <div>
+                <span class="results-eyebrow">LIVE GEOMETRY</span>
+                <h2>Interactive Planform Preview</h2>
+            </div>
+            <span id="wing-preview-status" class="wing-preview-status">Live preview</span>
+        </div>
+        <div class="wing-preview-controls" role="group" aria-label="Preview controls">
+            <label class="wing-view-control">View
+                <select id="wing-view-select" aria-label="Preview view">
+                    <option value="top-2d" data-mode="2d">Top 2D</option>
+                    <option value="top-3d" data-mode="3d">Top 3D</option>
+                    <option value="front-2d" data-mode="2d">Front 2D</option>
+                    <option value="front-3d" data-mode="3d">Front 3D</option>
+                    <option value="side-2d" data-mode="2d">Side 2D</option>
+                    <option value="side-3d" data-mode="3d">Side 3D</option>
+                </select>
+            </label>
+            <button type="button" class="btn btn-sm btn-primary" id="wing-mode-toggle" aria-pressed="true">Switch to 2D</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-mesh-toggle" aria-pressed="true">Discretization on</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-reference-toggle" aria-pressed="true">References on</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="wing-reset-view">Reset view</button>
+        </div>
+        <svg id="wing-preview" viewBox="0 0 1000 560" role="img" aria-label="Interactive wing planform preview"></svg>
+        <div class="wing-preview-legend">
+            <span><i class="wing-legend-swatch wing-legend-wing"></i>Wing</span>
+            <span><i class="wing-legend-swatch wing-legend-aileron"></i>Ailerons</span>
+            <span><i class="wing-legend-swatch wing-legend-tail"></i>Stabilizers</span>
+            <span><i class="wing-legend-swatch wing-legend-wind"></i>Freestream</span>
+        </div>
+    </div>
+    <div id="plot-area" aria-live="polite" hidden></div>
+</div>
+
+<div id="reset-confirmation-modal" class="reset-confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="reset-confirmation-title" hidden>
+    <div class="reset-confirmation-card">
+        <h3 id="reset-confirmation-title">Reset plane?</h3>
+        <p>This will delete the current configuration and results, then restore the default plane.</p>
+        <div class="reset-confirmation-actions">
+            <button type="button" class="btn btn-secondary" onclick="resolveResetConfirmation(false)">Cancel</button>
+            <button type="button" class="btn btn-danger" onclick="resolveResetConfirmation(true)">Reset all</button>
+        </div>
+    </div>
 </div>
 
 <script>
 
 // Pass default plane from Flask to JavaScript
-const defaultPlane = {{ default_plane | tojson }};
+// A top-level const is not a window property, so assign it explicitly.
+window.defaultPlane = {{ initial_plane | tojson }};
 
-function plotData(endpoint, filename) {
-    const form = document.getElementById("wing-form");
-    if (!form.checkValidity()) {
-        form.reportValidity();
+function wingPreviewNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+
+window.wingCamera = window.wingCamera || { yaw: 0.55, pitch: 0.35, zoom: 1, panX: 0, panY: 0 };
+window.wingProjection = 'planform';
+window.wingMeshVisible = true;
+window.wingReferencesVisible = true;
+window.wingPreviewMode = '3d';
+
+function setWingView(view) {
+    const [projection, mode] = view.split('-');
+    const cameraViews = {top: [1.57, 1.52], front: [1.57, 0], side: [0, 0]};
+    window.wingPreviewMode = mode === '2d' ? '2d' : '3d';
+    window.wingProjection = projection === 'top' ? 'planform' : projection;
+    const selector = document.getElementById('wing-view-select');
+    selector?.querySelectorAll('option[data-mode]').forEach(option => {
+        option.hidden = option.dataset.mode !== mode;
+    });
+    if (mode === '3d' && cameraViews[projection]) {
+        window.wingCamera = {yaw: cameraViews[projection][0], pitch: cameraViews[projection][1], zoom: 1, panX: 0, panY: 0};
+    }
+    if (selector) selector.value = view;
+    const modeToggle = document.getElementById('wing-mode-toggle');
+    if (modeToggle) {
+        modeToggle.textContent = window.wingPreviewMode === '3d' ? 'Switch to 2D' : 'Switch to 3D';
+        modeToggle.setAttribute('aria-pressed', String(window.wingPreviewMode === '3d'));
+    }
+    renderWingPreview();
+}
+
+function wingNacaHeight(code, fraction, upper) {
+    const digits = String(code || '0012').padStart(4, '0');
+    const camber = Number(digits[0]) / 100;
+    const position = Number(digits[1]) / 10;
+    const thickness = Number(digits.slice(2)) / 100;
+    const camberLine = camber === 0 || position === 0
+        ? 0
+        : fraction <= position
+            ? camber * fraction / (position * position) * (2 * position - fraction)
+            : camber * (1 - fraction) / ((1 - position) ** 2) * (1 - 2 * position + fraction);
+    const thicknessLine = 5 * thickness * (
+        0.2969 * Math.sqrt(fraction) - 0.1260 * fraction
+        - 0.3516 * fraction ** 2 + 0.2843 * fraction ** 3
+        - 0.1036 * fraction ** 4
+    );
+    return camberLine + (upper ? thicknessLine : -thicknessLine);
+}
+
+function wingInterpolatedNacaHeight(rootCode, tipCode, spanFraction, chordFraction, upper) {
+    const rootHeight = wingNacaHeight(rootCode, chordFraction, upper);
+    const tipHeight = wingNacaHeight(tipCode, chordFraction, upper);
+    return rootHeight + (tipHeight - rootHeight) * spanFraction;
+}
+
+function wingPreviewGeometry() {
+    const sections = Array.from(document.querySelectorAll('#sections .wing-section'));
+    const right = [];
+    let span = 0;
+    let lead = 0;
+    let height = 0;
+    let cumulativeTwist = 0; // radians, starts at root = 0
+    sections.forEach(section => {
+        const chordRoot = wingPreviewNumber(section.querySelector('[name="chord_root[]"]')?.value, 1);
+        const chordTip = wingPreviewNumber(section.querySelector('[name="chord_tip[]"]')?.value, chordRoot);
+        const spanFraction = Math.max(0, wingPreviewNumber(section.querySelector('[name="span_fraction[]"]')?.value));
+        const sweep = wingPreviewNumber(section.querySelector('[name="sweep[]"]')?.value) * Math.PI / 180;
+        const dihedral = wingPreviewNumber(section.querySelector('[name="dihedral[]"]')?.value) * Math.PI / 180;
+        const localTwist = wingPreviewNumber(section.querySelector('[name="twist[]"]')?.value) * Math.PI / 180;
+        const rootTwist = cumulativeTwist;
+        const tipTwist = cumulativeTwist + (localTwist || 0);
+        const nacaRoot = section.querySelector('[name="naca_root[]"]')?.value || '0012';
+        const nacaTip = section.querySelector('[name="naca_tip[]"]')?.value || nacaRoot;
+        const flapEnabled = section.querySelector('[name="flap_toggled[]"]')?.value === '1';
+        const flapStart = wingPreviewNumber(section.querySelector('[name="flap_start[]"]')?.value, 0.2);
+        const flapEnd = wingPreviewNumber(section.querySelector('[name="flap_end[]"]')?.value, 0.8);
+        const flapHinge = wingPreviewNumber(section.querySelector('[name="flap_hinge_chord[]"]')?.value, 0.25);
+        const nextSpan = span + Math.cos(dihedral) * (spanFraction / 2);
+        const nextHeight = height - Math.sin(dihedral) * (spanFraction / 2);
+        const nextLead = lead + Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
+        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot, twist: rootTwist}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip, twist: tipTwist}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
+        span = nextSpan;
+        lead = nextLead;
+        height = nextHeight;
+        cumulativeTwist = tipTwist;
+    });
+    return right;
+}
+
+function renderWingPreview() {
+    const svg = document.getElementById('wing-preview');
+    if (!svg) return;
+    const sections = wingPreviewGeometry();
+    if (!sections.length) {
+        svg.innerHTML = '<text class="wing-preview-error" x="500" y="280" text-anchor="middle">Add a wing section to preview the planform</text>';
         return;
     }
-    fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: getFormDataAsJson("wing-form")
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.plot) {
-            // Remove the specific message from plot-area if present
-            const plotArea = document.getElementById('plot-area');
-            const unwantedMsg = plotArea.querySelector('p[style*="New plane configuration loaded"]');
-            if (unwantedMsg) {
-                unwantedMsg.remove();
+    const is3d = window.wingPreviewMode !== '2d';
+    const shapes = [];
+    const detailShapes = [];
+    const outlineShapes = [];
+    const spanPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-span')?.value, 10)));
+    const chordPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-chord')?.value, 6)));
+    const previewPanelCount = spanPanels * chordPanels;
+    const previewStride = Math.max(1, Math.ceil(previewPanelCount / 12000));
+    const totalSectionSpan = sections.reduce((sum, section) => sum + (section.tip.y - section.root.y), 0);
+    const rawPanelCounts = sections.map(section => spanPanels * (section.tip.y - section.root.y) / Math.max(totalSectionSpan, 0.001));
+    const sectionPanelCounts = rawPanelCounts.map(value => Math.max(1, Math.floor(value)));
+    while (sectionPanelCounts.reduce((sum, value) => sum + value, 0) < spanPanels) {
+        const index = sectionPanelCounts.reduce((best, value, current) =>
+            rawPanelCounts[current] - value > rawPanelCounts[best] - sectionPanelCounts[best] ? current : best, 0);
+        sectionPanelCounts[index] += 1;
+    }
+    while (sectionPanelCounts.reduce((sum, value) => sum + value, 0) > spanPanels && sectionPanelCounts.some(value => value > 1)) {
+        const index = sectionPanelCounts.findIndex(value => value > 1);
+        sectionPanelCounts[index] -= 1;
+    }
+    let allocatedPanels = 0;
+    sections.forEach((section, sectionIndex) => {
+        if (!is3d) {
+            const sectionPanels = sectionPanelCounts[sectionIndex];
+            for (let index = 0; index < sectionPanels; index += previewStride) {
+                const f0 = index / sectionPanels;
+                const f1 = Math.min(1, (index + previewStride) / sectionPanels);
+                for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
+                    const c0 = chordIndex / chordPanels;
+                    const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
+                    const atSpan = (spanFraction, chordFraction, twistAngle = null) => {
+                        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+                        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+                        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+                        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+                        const x = xLead + chord * chordFraction;
+                        // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
+                        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+                        if (!twist) return [x, y, zBase];
+                        const qx = xLead + chord * 0.25;
+                        const qz = zBase; // pivot about quarter-chord at local reference height
+                        const ct = Math.cos(twist), st = Math.sin(twist);
+                        const xr = qx + ct * (x - qx) - st * (zBase - qz);
+                        const zr = qz + st * (x - qx) + ct * (zBase - qz);
+                        return [xr, y, zr];
+                    };
+                    // compute panel mid-span twist (radians) so the whole panel uses same twist
+                    const midFraction = (f0 + f1) / 2;
+                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
+                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
+                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                }
             }
-            Plotly.newPlot("plot-area", JSON.parse(data.plot));
-        } else {
-            console.error("No plot data received");
+            return;
         }
-    })
-    .catch(error => console.error("Error generating plot:", error));
+        const sectionSpan = section.tip.y - section.root.y;
+        const sectionPanels = sectionPanelCounts[sectionIndex];
+        allocatedPanels += sectionPanels;
+        for (let index = 0; index < sectionPanels; index += previewStride) {
+            const f0 = index / sectionPanels;
+            const f1 = Math.min(1, (index + previewStride) / sectionPanels);
+            ['upper', 'lower'].forEach(surface => {
+                const upper = surface === 'upper';
+                for (let chordIndex = 0; chordIndex < chordPanels; chordIndex += previewStride) {
+                    const c0 = chordIndex / chordPanels;
+                    const c1 = Math.min(1, (chordIndex + previewStride) / chordPanels);
+                    const atSpan = (spanFraction, chordFraction, twistAngle = null) => {
+                        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+                        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+                        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+                        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+                        const profileHeight = wingInterpolatedNacaHeight(
+                            section.root.naca,
+                            section.tip.naca,
+                            spanFraction,
+                            chordFraction,
+                            upper
+                        );
+                        const x = xLead + chord * chordFraction;
+                        const z = zBase - chord * profileHeight;
+                        // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
+                        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+                        if (!twist) return [x, y, z];
+                        const qx = xLead + chord * 0.25;
+                        const qz = zBase; // pivot at quarter-chord reference height
+                        const ct = Math.cos(twist), st = Math.sin(twist);
+                        const xr = qx + ct * (x - qx) - st * (z - qz);
+                        const zr = qz + st * (x - qx) + ct * (z - qz);
+                        return [xr, y, zr];
+                    };
+                    // compute panel mid-span twist (radians) so the whole panel uses same twist
+                    const midFraction = (f0 + f1) / 2;
+                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
+                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
+                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                }
+            });
+        }
+    });
+    const detailPoint = (section, spanFraction, chordFraction, upper = true, twistAngle = null) => {
+        const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+        const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
+        const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
+        const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+        const height = wingInterpolatedNacaHeight(section.root.naca, section.tip.naca, spanFraction, chordFraction, upper);
+        const x = xLead + chord * chordFraction;
+        const z = zBase - chord * height;
+        const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
+        if (!twist) return [x, y, z];
+        const qx = xLead + chord * 0.25;
+        const qz = zBase;
+        const ct = Math.cos(twist), st = Math.sin(twist);
+        const xr = qx + ct * (x - qx) - st * (z - qz);
+        const zr = qz + st * (x - qx) + ct * (z - qz);
+        return [xr, y, zr];
+    };
+    const addAirfoilOutline = (section, spanFraction, type) => {
+        const points = [];
+        const samples = 16;
+        for (let index = 0; index <= samples; index++) {
+            points.push(detailPoint(section, spanFraction, index / samples, true));
+        }
+        for (let index = samples; index >= 0; index--) {
+            points.push(detailPoint(section, spanFraction, index / samples, false));
+        }
+        outlineShapes.push({type, points}, {type, points: points.map(([x, y, z]) => [x, -y, z])});
+    };
+    sections.forEach(section => {
+        addAirfoilOutline(section, 0, 'wing');
+        addAirfoilOutline(section, 0.5, 'wing');
+        addAirfoilOutline(section, 1, 'wing');
+        const boundary = [
+            detailPoint(section, 0, 0, true), detailPoint(section, 1, 0, true),
+            detailPoint(section, 1, 1, true), detailPoint(section, 0, 1, true)
+        ];
+        outlineShapes.push({type: 'wing', points: boundary}, {type: 'wing', points: boundary.map(([x, y, z]) => [x, -y, z])});
+    });
+    sections.forEach(section => {
+        if (!section.flap.enabled) return;
+        const start = Math.max(0, Math.min(1, section.flap.start));
+        const end = Math.max(start, Math.min(1, section.flap.end));
+        const hinge = Math.max(0, Math.min(1, section.flap.hinge));
+        const flapPanel = [
+            detailPoint(section, start, hinge), detailPoint(section, start, 1),
+            detailPoint(section, end, 1), detailPoint(section, end, hinge)
+        ];
+        detailShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
+        outlineShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
+    });
+    const readStabilizer = prefix => {
+        const section = document.getElementById(`${prefix}-stabilizer-section`);
+        if (!section || section.hidden || getComputedStyle(section).display === 'none') return null;
+        const value = name => wingPreviewNumber(document.getElementById(`${prefix}-stabilizer-${name}`)?.value);
+        return {
+            x: value('x-translate'), z: value('z-translate'),
+            root: document.getElementById(`${prefix}-stabilizer-naca-root`)?.value || '0012',
+            tip: document.getElementById(`${prefix}-stabilizer-naca-tip`)?.value || '0012',
+            chordRoot: value('chord-root'), chordTip: value('chord-tip'),
+            span: Math.max(0, value('span-fraction')), sweep: value('sweep'),
+            dihedral: value('dihedral')
+        };
+    };
+    const addStabilizer = (data, type) => {
+        if (!data) return;
+        const sweep = Math.tan(data.sweep * Math.PI / 180);
+        const halfSpan = data.span / 2;
+        const tip = {x: data.x + sweep * halfSpan, y: halfSpan, z: data.z - Math.sin(data.dihedral * Math.PI / 180) * halfSpan, c: data.chordTip, naca: data.tip};
+        const root = {x: data.x, y: 0, z: data.z, c: data.chordRoot, naca: data.root};
+        const surface = {root, tip};
+        addAirfoilOutline(surface, 0, type);
+        addAirfoilOutline(surface, 1, type);
+        const planformBoundary = [
+            detailPoint(surface, 0, 0, true), detailPoint(surface, 1, 0, true),
+            detailPoint(surface, 1, 1, true), detailPoint(surface, 0, 1, true)
+        ];
+        outlineShapes.push({type, points: planformBoundary}, {type, points: planformBoundary.map(([x, y, z]) => [x, -y, z])});
+        const spanCount = Math.max(2, Math.min(12, Math.round(spanPanels / 2)));
+        const chordCount = Math.max(2, Math.min(8, chordPanels));
+        for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
+            const s0 = spanIndex / spanCount;
+            const s1 = (spanIndex + 1) / spanCount;
+            for (let chordIndex = 0; chordIndex < chordCount; chordIndex++) {
+                const c0 = chordIndex / chordCount;
+                const c1 = (chordIndex + 1) / chordCount;
+                ['upper', 'lower'].forEach(surfaceSide => {
+                    const upper = surfaceSide === 'upper';
+                    const panel = [
+                        detailPoint(surface, s0, c0, upper), detailPoint(surface, s0, c1, upper),
+                        detailPoint(surface, s1, c1, upper), detailPoint(surface, s1, c0, upper)
+                    ];
+                    detailShapes.push({type, points: panel}, {type, points: panel.map(([x, y, z]) => [x, -y, z])});
+                });
+            }
+        }
+    };
+    const addVerticalStabilizer = data => {
+        if (!data) return;
+        const spanCount = Math.max(2, Math.min(12, Math.round(spanPanels / 2)));
+        const chordCount = Math.max(2, Math.min(8, chordPanels));
+        const span = Math.max(data.span, 0.01);
+        const sweep = Math.tan(data.sweep * Math.PI / 180);
+        const cAt = fraction => data.chordRoot + (data.chordTip - data.chordRoot) * fraction;
+        const xAt = (spanFraction, chordFraction) => {
+            const xLead = data.x + sweep * span * spanFraction;
+            return xLead + cAt(spanFraction) * chordFraction;
+        };
+        const verticalPoint = (spanFraction, chordFraction, upper) => {
+            const zBase = data.z - span * spanFraction;
+            const thickness = cAt(spanFraction) * wingNacaHeight(data.root, chordFraction, upper);
+            return [xAt(spanFraction, chordFraction), thickness, zBase];
+        };
+        const addVerticalProfileOutline = spanFraction => {
+            const profile = [];
+            const profileSamples = 16;
+            for (let index = 0; index <= profileSamples; index++) {
+                const fraction = index / profileSamples;
+                profile.push(verticalPoint(spanFraction, fraction, true));
+            }
+            for (let index = profileSamples; index >= 0; index--) {
+                const fraction = index / profileSamples;
+                profile.push(verticalPoint(spanFraction, fraction, false));
+            }
+            outlineShapes.push({type: 'stabilizer', points: profile});
+        };
+        addVerticalProfileOutline(0);
+        addVerticalProfileOutline(1);
+        outlineShapes.push({type: 'stabilizer', points: [
+            [xAt(0, 0), 0, data.z],
+            [xAt(1, 0), 0, data.z - span],
+            [xAt(1, 1), 0, data.z - span],
+            [xAt(0, 1), 0, data.z]
+        ]});
+        for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
+            const s0 = spanIndex / spanCount;
+            const s1 = (spanIndex + 1) / spanCount;
+            for (let chordIndex = 0; chordIndex < chordCount; chordIndex++) {
+                const c0 = chordIndex / chordCount;
+                const c1 = (chordIndex + 1) / chordCount;
+                ['upper', 'lower'].forEach(surfaceSide => {
+                    const upper = surfaceSide === 'upper';
+                    detailShapes.push({type: 'stabilizer', points: [
+                        verticalPoint(s0, c0, upper), verticalPoint(s0, c1, upper),
+                        verticalPoint(s1, c1, upper), verticalPoint(s1, c0, upper)
+                    ]});
+                });
+            }
+        }
+    };
+    addStabilizer(readStabilizer('horizontal'), 'stabilizer');
+    addVerticalStabilizer(readStabilizer('vertical'));
+    const all = shapes.flat();
+    const xs = all.map(point => point[0]);
+    const ys = all.map(point => point[1]);
+    const zs = all.map(point => point[2]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    const project = ([x, y, z]) => {
+        if (!is3d) {
+            if (window.wingProjection === 'front') return [y, -z];
+            if (window.wingProjection === 'side') return [x, -z];
+            return [y, -x];
+        }
+        const camera = window.wingCamera;
+        const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
+        const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
+        const rotatedX = x * cy - y * sy;
+        const rotatedDepth = x * sy + y * cy;
+        const rotatedY = -z * cp - rotatedDepth * sp;
+        const depth = rotatedDepth * cp + z * sp;
+        return [-rotatedX, rotatedY];
+    };
+    const projected = shapes.map(shape => shape.map(project));
+    const projectedDetails = detailShapes.map(detail => ({type: detail.type, points: detail.points.map(project)}));
+    const projectedOutlines = outlineShapes.map(outline => ({type: outline.type, points: outline.points.map(project)}));
+    const alpha = wingPreviewNumber(document.getElementById('angle-of-attack')?.value) * Math.PI / 180;
+    const beta = wingPreviewNumber(document.getElementById('side-slip-angle')?.value) * Math.PI / 180;
+    const windDirection = [
+        Math.cos(alpha) * Math.cos(beta),
+        Math.sin(beta),
+        Math.sin(alpha)
+    ];
+    const geometryLength = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
+    const wingOrigin = [0, 0, 0];
+    const windLength = geometryLength * 0.15;
+    const windVectorStart = [
+        wingOrigin[0] - windDirection[0] * windLength,
+        wingOrigin[1] - windDirection[1] * windLength,
+        wingOrigin[2] - windDirection[2] * windLength
+    ];
+    const windSolidLength = windLength * 0.5;
+    const windVectorSolidEnd = [
+        windVectorStart[0] + windDirection[0] * windSolidLength,
+        windVectorStart[1] + windDirection[1] * windSolidLength,
+        windVectorStart[2] + windDirection[2] * windSolidLength
+    ];
+    const axisLength = geometryLength * 0.15;
+    const wingAxes = [
+        {name: 'x', end: [axisLength, 0, 0]},
+        {name: 'y', end: [0, axisLength, 0]},
+        {name: 'z', end: [0, 0, axisLength]}
+    ];
+    const projectedAxes = wingAxes.map(axis => ({name: axis.name, origin: project(wingOrigin), end: project(axis.end)}));
+    const referencePoints = window.wingReferencesVisible
+        ? [project(windVectorStart), project(wingOrigin), ...projectedAxes.flatMap(axis => [axis.origin, axis.end])]
+        : [];
+    const projectedPoints = projected.flat().concat(
+        projectedDetails.flatMap(detail => detail.points),
+        projectedOutlines.flatMap(outline => outline.points),
+        referencePoints
+    );
+    const projectedXs = projectedPoints.map(point => point[0]);
+    const projectedYs = projectedPoints.map(point => point[1]);
+    const pMinX = Math.min(...projectedXs), pMaxX = Math.max(...projectedXs);
+    const pMinY = Math.min(...projectedYs), pMaxY = Math.max(...projectedYs);
+    const fitScale = Math.min(900 / Math.max(pMaxX - pMinX, 0.001), 480 / Math.max(pMaxY - pMinY, 0.001)) * 0.88 * window.wingCamera.zoom;
+    const centerX = (pMinX + pMaxX) / 2, centerY = (pMinY + pMaxY) / 2;
+    const mapPoint = ([x, y]) => [
+        500 + (x - centerX) * fitScale + window.wingCamera.panX,
+        280 - (y - centerY) * fitScale + window.wingCamera.panY
+    ];
+    const rightPath = [];
+    const leftPath = [];
+    projected.forEach((shape, index) => {
+        const path = shape.map(mapPoint);
+        const target = index % 2 ? leftPath : rightPath;
+        target.push(`M ${path.map(point => point.join(' ')).join(' L ')} Z`);
+    });
+    const meshClass = window.wingMeshVisible ? ' wing-preview-mesh' : ' wing-preview-solid';
+    const paths = `
+        <path class="wing-preview-surface wing-preview-right${meshClass}" d="${rightPath.join(' ')}" />
+        <path class="wing-preview-surface wing-preview-left${meshClass}" d="${leftPath.join(' ')}" />`;
+    const detailPaths = projectedDetails.map((detail, index) => {
+        const points = detail.points.map(mapPoint);
+        const path = `M ${points.map(point => point.join(' ')).join(' L ')} Z`;
+        return `<path class="wing-preview-detail wing-preview-detail-${detail.type}" d="${path}" />`;
+    }).join('');
+    const outlinePaths = projectedOutlines.map(outline => {
+        const points = outline.points.map(mapPoint);
+        return `<path class="wing-preview-outline wing-preview-outline-${outline.type}" d="M ${points.map(point => point.join(' ')).join(' L ')} Z" />`;
+    }).join('');
+    const detailVisibility = window.wingMeshVisible ? '' : ' wing-preview-detail-hidden';
+    const wingOriginProjected = mapPoint(project(wingOrigin));
+    const windVectorStartProjected = mapPoint(project(windVectorStart));
+    const windVectorSolidEndProjected = mapPoint(project(windVectorSolidEnd));
+    const windVector = window.wingReferencesVisible ? `<line class="wing-wind-vector" x1="${windVectorStartProjected[0]}" y1="${windVectorStartProjected[1]}" x2="${windVectorSolidEndProjected[0]}" y2="${windVectorSolidEndProjected[1]}" marker-end="url(#wing-wind-arrow)" />` : '';
+    const windOriginReference = window.wingReferencesVisible ? `<line class="wing-wind-origin-reference" x1="${windVectorSolidEndProjected[0]}" y1="${windVectorSolidEndProjected[1]}" x2="${wingOriginProjected[0]}" y2="${wingOriginProjected[1]}" />` : '';
+    const axisLines = window.wingReferencesVisible ? projectedAxes.map(axis => `
+        <line class="wing-reference-axis wing-axis-${axis.name}" x1="${mapPoint(axis.origin)[0]}" y1="${mapPoint(axis.origin)[1]}" x2="${mapPoint(axis.end)[0]}" y2="${mapPoint(axis.end)[1]}" marker-end="url(#wing-axis-arrow-${axis.name})" />
+        <text class="wing-reference-label wing-axis-${axis.name}" x="${mapPoint(axis.end)[0] + 6}" y="${mapPoint(axis.end)[1] - 6}">${axis.name.toUpperCase()}</text>
+    `).join('') : '';
+    const originMarker = window.wingReferencesVisible ? `<circle class="wing-origin-marker" cx="${wingOriginProjected[0]}" cy="${wingOriginProjected[1]}" r="5" />` : '';
+    svg.innerHTML = `
+        <defs>
+            <marker id="wing-wind-arrow" markerWidth="10" markerHeight="9" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-wind-arrowhead" />
+            </marker>
+            <marker id="wing-axis-arrow-x" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-x" />
+            </marker>
+            <marker id="wing-axis-arrow-y" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-y" />
+            </marker>
+            <marker id="wing-axis-arrow-z" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M 0 0 L 8 4 L 0 8 z" class="wing-axis-arrow-z" />
+            </marker>
+        </defs>
+        ${originMarker}
+        ${paths}
+        <g class="wing-preview-details${detailVisibility}">${detailPaths}</g>
+        <g class="wing-preview-outlines">${outlinePaths}</g>
+        ${windVector}
+        ${windOriginReference}
+        ${axisLines}`;
+    document.getElementById('wing-preview-status').textContent = `${is3d ? '3D' : '2D'} · ${sections.length} section${sections.length === 1 ? '' : 's'}${previewStride > 1 ? ' · reduced preview' : ''}`;
 }
+
+let wingPreviewFrame = null;
+document.addEventListener('input', event => {
+    if (!event.target.closest('#wing-form')) return;
+    window.cancelAnimationFrame(wingPreviewFrame);
+    wingPreviewFrame = window.requestAnimationFrame(renderWingPreview);
+});
+
+const scheduleWingPreview = () => {
+    window.cancelAnimationFrame(wingPreviewFrame);
+    wingPreviewFrame = window.requestAnimationFrame(renderWingPreview);
+};
+window.addEventListener('vlmpy:configuration-loaded', scheduleWingPreview);
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sectionsContainer = document.getElementById('sections');
+    if (sectionsContainer) {
+        const sectionsObserver = new MutationObserver(scheduleWingPreview);
+        sectionsObserver.observe(sectionsContainer, {childList: true, subtree: true});
+    }
+    document.getElementById('wing-form')?.addEventListener('click', event => {
+        if (event.target.closest('[aria-controls="horizontal-stabilizer-section"], [aria-controls="vertical-stabilizer-section"], .toggle-button, .toggle-buttons')) {
+            scheduleWingPreview();
+        }
+    });
+});
 
 // Read file as text
 const readFileAsText = file => new Promise((resolve, reject) => {
@@ -315,29 +844,24 @@ function loadData(input) {
     reader.onload = e => {
         try {
             const config = JSON.parse(e.target.result);
-            if (typeof populateFormWithConfig === 'function') {
-                if (populateFormWithConfig(config)) {
-                    window.messageCenter.success('New plane configuration loaded - previous results cleared.');
-                    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">New config loaded. Previous results cleared.</p>';
-                } else {
-                    window.messageCenter.error('Error populating form with configuration data.');
-                }
-            } else {
-                fetch('/loadplane', {
+            fetch('/api/apply_plane_config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
                 })
                 .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.message); }))
-                .then(d => {
-                    if (d.status === 'success' && d.plane && typeof populateFormWithConfig === 'function') {
-                        populateFormWithConfig(d.plane);
+                .then(async d => {
+                    if (d.status === 'success' && d.config && typeof window.populateFormWithConfig === 'function') {
+                        const populated = await window.populateFormWithConfig(d.config);
+                        if (!populated) throw new Error('The plane form could not be populated');
                         window.messageCenter.success('New plane configuration loaded - previous results cleared.');
-                        document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Config loaded. Click "Calculate" for new results.</p>';
+                        Plotly.purge('plot-area');
+                        document.getElementById('plot-area').innerHTML = '';
+                        document.getElementById('plot-area').hidden = true;
+                        document.getElementById('wing-preview-panel')?.removeAttribute('hidden');
                     } else throw new Error(d.message || 'No plane data returned');
                 })
                 .catch(e => window.messageCenter.error(`Error loading plane: ${e.message}`));
-            }
         } catch {
             window.messageCenter.error('Error: Invalid JSON file.');
         }
@@ -346,21 +870,128 @@ function loadData(input) {
     reader.readAsText(file);
 }
 
+let resetConfirmationResolver = null;
+
+function requestResetConfirmation() {
+    const modal = document.getElementById('reset-confirmation-modal');
+    if (!modal) return Promise.resolve(false);
+    modal.hidden = false;
+    modal.querySelector('button')?.focus();
+    return new Promise(resolve => {
+        resetConfirmationResolver = resolve;
+    });
+}
+
+function resolveResetConfirmation(confirmed) {
+    const modal = document.getElementById('reset-confirmation-modal');
+    if (modal) modal.hidden = true;
+    if (resetConfirmationResolver) {
+        resetConfirmationResolver(confirmed);
+        resetConfirmationResolver = null;
+    }
+}
+
+async function resetAllPlane() {
+    const confirmed = await requestResetConfirmation();
+    if (!confirmed) return;
+    try {
+        const response = await fetch('/api/reset_plane', {
+            method: 'POST',
+            headers: {'Accept': 'application/json'}
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || `Reset failed (HTTP ${response.status})`);
+        }
+        window.location.assign('/wing');
+    } catch (error) {
+        console.error('Plane reset failed:', error);
+        window.messageCenter?.error(`Could not reset plane: ${error.message}`);
+    }
+}
+
 function erasePlot() {
     Plotly.purge("plot-area");
-    document.getElementById('plot-area').innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Plot area cleared. Click "Calculate" to generate new results.</p>';
+    const plotArea = document.getElementById('plot-area');
+    plotArea.innerHTML = '';
+    plotArea.hidden = true;
+    document.getElementById('wing-preview-panel')?.removeAttribute('hidden');
 }
 
 const radToDeg = r => (r == null ? r : r * 57.29577951308232);
 
 function convertAngleIfNeeded(value, isAngle = false) {
     if (!isAngle || value == null) return value;
+    if (window.wingConfigAngleUnit === 'rad') return radToDeg(value);
+    if (window.wingConfigAngleUnit === 'deg') return value;
     return Math.abs(value) <= 6.28 ? radToDeg(value) : value;
 }
 
+function createSavedWingSection(sectionNumber) {
+    const section = document.createElement('div');
+    section.className = 'wing-section';
+    section.style.display = 'block';
+    section.style.opacity = '1';
+    section.innerHTML = `
+        <h4>Section ${sectionNumber}</h4>
+        <label for="chord-root-${sectionNumber}">Chord Root (m):</label>
+        <input id="chord-root-${sectionNumber}" type="number" name="chord_root[]" step="0.1" required>
+        <label for="chord-tip-${sectionNumber}">Chord Tip (m):</label>
+        <input id="chord-tip-${sectionNumber}" type="number" name="chord_tip[]" step="0.1" required>
+        <label for="span-fraction-${sectionNumber}">Span Fraction (m):</label>
+        <input id="span-fraction-${sectionNumber}" type="number" name="span_fraction[]" step="any" required>
+        <label for="sweep-${sectionNumber}">Sweep Angle (deg):</label>
+        <input id="sweep-${sectionNumber}" type="number" name="sweep[]" step="any" required>
+        <label for="dihedral-${sectionNumber}">Dihedral Angle (deg):</label>
+        <input id="dihedral-${sectionNumber}" type="number" name="dihedral[]" step="any" required>
+        <label for="twist-${sectionNumber}">Twist (deg):</label>
+        <input id="twist-${sectionNumber}" type="number" name="twist[]" step="any" value="0">
+        <label for="naca-root-${sectionNumber}">NACA Root:</label>
+        <input id="naca-root-${sectionNumber}" type="text" name="naca_root[]" required>
+        <label for="naca-tip-${sectionNumber}">NACA Tip:</label>
+        <input id="naca-tip-${sectionNumber}" type="text" name="naca_tip[]" required>
+        <input type="hidden" name="flap_toggled[]" value="0">
+        <button type="button" class="toggle-buttons" aria-label="Toggle Aileron">Toggle Aileron</button>
+        <div class="flap-params" style="display: none;">
+            <input type="number" name="flap_start[]" step="any">
+            <input type="number" name="flap_end[]" step="any">
+            <input type="number" name="flap_hinge_chord[]" step="any">
+            <input type="number" name="deflection_angle[]" step="any">
+            <select name="deflection_type[]">
+                <option value="symmetrical">Symmetrical</option>
+                <option value="antisymmetrical">Antisymmetrical</option>
+            </select>
+        </div>`;
+    return section;
+}
+
  // ===== MAIN FUNCTION WITH ANGLE CONVERSION =====
-function populateFormWithConfig(config) {
+window.populateFormWithConfig = async function populateFormWithConfig(config) {
     try {
+        if (typeof window.addSection !== 'function') {
+            await new Promise((resolve, reject) => {
+                const timeout = 2000;
+                const started = Date.now();
+                const waitForSectionCreator = () => {
+                    if (typeof window.addSection === 'function') {
+                        resolve();
+                    } else if (Date.now() - started >= timeout) {
+                        reject(new Error('Wing section creator is not initialized'));
+                    } else {
+                        window.setTimeout(waitForSectionCreator, 25);
+                    }
+                };
+                waitForSectionCreator();
+            });
+        }
+
+    config = config || {};
+    window.wingConfigAngleUnit = config.angle_unit || 'auto';
+    if (config.wingsections && !config.wing_sections) config.wing_sections = config.wingsections;
+    if (config.horizontalstabilizer && !config.horizontal_stabilizer) config.horizontal_stabilizer = config.horizontalstabilizer;
+    if (config.verticalstabilizer && !config.vertical_stabilizer) config.vertical_stabilizer = config.verticalstabilizer;
+    if (config.flightparameters && !config.flight_parameters) config.flight_parameters = config.flightparameters;
+
         // === FLIGHT PARAMETERS ===
         [
             { id: 'flight-velocity', val: config.flight_parameters?.u },
@@ -385,12 +1016,19 @@ function populateFormWithConfig(config) {
         const wingSections = config.wing_sections;
         if (Array.isArray(wingSections) && wingSections.length) {
             const container = document.getElementById('sections');
-            if (container) container.innerHTML = '';
+            if (!container) throw new Error('Wing sections container not found');
+            container.innerHTML = '';
             for (let i = 0; i < wingSections.length; i++) {
-                if (typeof addSection === 'function') addSection();
-                else return false;
+                const before = container.children.length;
+                if (typeof window.addSection === 'function') window.addSection();
+                if (container.children.length === before) {
+                    container.appendChild(createSavedWingSection(i + 1));
+                }
             }
-            setTimeout(() => populateSectionsDataWithAngles(wingSections), 200);
+            if (container.children.length !== wingSections.length) {
+                throw new Error(`Expected ${wingSections.length} wing sections, created ${container.children.length}`);
+            }
+            populateSectionsDataWithAngles(wingSections);
         }
 
         // === STABILIZERS ===
@@ -399,7 +1037,7 @@ function populateFormWithConfig(config) {
             const hsSection = document.getElementById('horizontal-stabilizer-section');
             if (hsSection && hsSection.style.display === 'none')
                 toggleSection('horizontal-stabilizer-section', '[aria-controls="horizontal-stabilizer-section"]');
-            setTimeout(() => populateHorizontalStabilizerDataWithAngles(hsData), 250);
+            populateHorizontalStabilizerDataWithAngles(hsData);
         }
         else { // Ensure section is hidden if no data
             const hsSection = document.getElementById('horizontal-stabilizer-section');
@@ -412,7 +1050,7 @@ function populateFormWithConfig(config) {
             const vsSection = document.getElementById('vertical-stabilizer-section');
             if (vsSection && vsSection.style.display === 'none')
                 toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
-            setTimeout(() => populateVerticalStabilizerDataWithAngles(vsData), 300);
+            populateVerticalStabilizerDataWithAngles(vsData);
         }
         else { // Ensure section is hidden if no data
             const vsSection = document.getElementById('vertical-stabilizer-section');
@@ -420,6 +1058,7 @@ function populateFormWithConfig(config) {
                 toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
         }
 
+        window.dispatchEvent(new CustomEvent('vlmpy:configuration-loaded', {detail: config}));
         return true;
     } catch (error) {
         console.error("Error populating form:", error);
@@ -450,6 +1089,11 @@ function populateSectionsDataWithAngles(wingSections) {
             const input = sectionDiv.querySelector(`input[name="${name}"]`);
             if (input && value != null) input.value = value;
         });
+
+        // Optional twist value (degrees)
+        const twistVal = section.twist ?? section.twist_deg ?? section.twistdeg ?? section.twist_degrees;
+        const twistInput = sectionDiv.querySelector('input[name="twist[]"]');
+        if (twistInput && twistVal != null) twistInput.value = convertAngleIfNeeded(twistVal, true);
 
         // Flap
         const flapStart = section.flap_start ?? section.flapstart;
@@ -521,70 +1165,114 @@ document.getElementById('wing-form').addEventListener('keydown', function(event)
     if (event.key === 'Enter') {
         event.preventDefault();
         document.getElementById('calculate-button')?.click();
-        document.getElementById('view-planform-button')?.click();
     }
 });
 
 
-// Close any info popup when clicking outside
-document.addEventListener('mousedown', function(event) {
-    document.querySelectorAll('.info-popup').forEach(function(popup) {
-        if (popup.style.display === 'block' && !popup.contains(event.target)) {
-            popup.style.display = 'none';
-        }
-    });
-});
 
-// Close any info popup when pressing Escape
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape') {
-        document.querySelectorAll('.info-popup').forEach(function(popup) {
-            if (popup.style.display === 'block') {
-                popup.style.display = 'none';
-            }
-        });
-    }
-});
-
-/* abrir popup por id */
-function openInfo(id) {
-  const popup = document.getElementById(id);
-  // show
-  popup.style.display = 'block';
-  popup.setAttribute('aria-hidden', 'false');
-  popup.focus?.();
-}
-
-/* cerrar popup por id (opcional) */
-function closeInfo(id) {
-  const popup = document.getElementById(id);
-  if (!popup) return;
-  popup.style.display = 'none';
-  popup.setAttribute('aria-hidden', 'true');
-  const backdrop = document.querySelector('.info-backdrop');
-  if (backdrop) backdrop.style.display = 'none';
-}
-
-/* cerrar todos (útil al click fuera o con ESC) */
-function closeAllInfo() {
-  document.querySelectorAll('.info-popup').forEach(p => {
-    p.style.display = 'none';
-    p.setAttribute('aria-hidden', 'true');
-  });
-  const backdrop = document.querySelector('.info-backdrop');
-  if (backdrop) backdrop.style.display = 'none';
-}
-
-/* cerrar con Escape */
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeAllInfo();
-});
 
 // DOM initialization and default plane population
 document.addEventListener('DOMContentLoaded', () => {
     if (window.defaultPlane) {
         populateFormWithConfig(window.defaultPlane);
     }
+    window.setTimeout(renderWingPreview, 0);
+    setWingView('top-2d');
+    document.getElementById('wing-view-select')?.addEventListener('change', event => setWingView(event.target.value));
+    document.getElementById('wing-mode-toggle')?.addEventListener('click', () => {
+        const current = document.getElementById('wing-view-select')?.value || 'top-2d';
+        const [projection, mode] = current.split('-');
+        setWingView(`${projection}-${mode === '3d' ? '2d' : '3d'}`);
+    });
+    document.getElementById('wing-mesh-toggle')?.addEventListener('click', event => {
+        window.wingMeshVisible = !window.wingMeshVisible;
+        event.currentTarget.textContent = window.wingMeshVisible ? 'Discretization on' : 'Discretization off';
+        event.currentTarget.setAttribute('aria-pressed', String(window.wingMeshVisible));
+        renderWingPreview();
+    });
+    document.getElementById('wing-reference-toggle')?.addEventListener('click', event => {
+        window.wingReferencesVisible = !window.wingReferencesVisible;
+        event.currentTarget.textContent = window.wingReferencesVisible ? 'References on' : 'References off';
+        event.currentTarget.setAttribute('aria-pressed', String(window.wingReferencesVisible));
+        renderWingPreview();
+    });
+    document.getElementById('wing-reset-view')?.addEventListener('click', () => {
+        setWingView('top-2d');
+    });
+    const preview = document.getElementById('wing-preview');
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    let panMode = false;
+    preview?.addEventListener('pointerdown', event => {
+        if (window.wingPreviewMode !== '3d') return;
+        dragging = true;
+        panMode = event.shiftKey || event.button === 1 || event.button === 2;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        preview.setPointerCapture(event.pointerId);
+        preview.classList.add('is-orbiting');
+    });
+    preview?.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        if (panMode) {
+            window.wingCamera.panX += (event.clientX - lastX) * 1.2;
+            window.wingCamera.panY += (event.clientY - lastY) * 1.2;
+        } else {
+            window.wingCamera.yaw += (event.clientX - lastX) * 0.01;
+            window.wingCamera.pitch = Math.max(-1.2, Math.min(1.2, window.wingCamera.pitch + (event.clientY - lastY) * 0.01));
+        }
+        lastX = event.clientX;
+        lastY = event.clientY;
+        window.requestAnimationFrame(renderWingPreview);
+    });
+    preview?.addEventListener('pointerup', () => { dragging = false; panMode = false; preview.classList.remove('is-orbiting'); });
+    preview?.addEventListener('pointercancel', () => { dragging = false; preview.classList.remove('is-orbiting'); });
+    preview?.addEventListener('wheel', event => {
+        if (window.wingPreviewMode !== '3d') return;
+        event.preventDefault();
+        window.wingCamera.zoom = Math.max(0.35, Math.min(2.5, window.wingCamera.zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
+        window.requestAnimationFrame(renderWingPreview);
+    }, {passive: false});
+    preview?.addEventListener('contextmenu', event => event.preventDefault());
+    preview?.addEventListener('dblclick', () => {
+        window.wingCamera = { yaw: 0.55, pitch: 0.35, zoom: 1, panX: 0, panY: 0 };
+        window.requestAnimationFrame(renderWingPreview);
+    });
 });
+
+function generate_stl() {
+    const form = document.getElementById("wing-form");
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    fetch('/generate_stl', {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form))
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.message || 'Error generating STL'); });
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'wing.stl';  // Default filename, can be customized
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        window.messageCenter.success('STL file generated and downloaded successfully.');
+    })
+    .catch(error => {
+        console.error('Error generating STL:', error);
+        window.messageCenter.error(`Error generating STL: ${error.message}`);
+    });
+}
+
 </script>
 {% endblock %}

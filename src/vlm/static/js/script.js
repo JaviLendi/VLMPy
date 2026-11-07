@@ -1,3 +1,7 @@
+/*
+ * Author: Javier Lendínez
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
 document.addEventListener('DOMContentLoaded', () => {
     // Cache DOM elements
     const DOM = {
@@ -10,6 +14,15 @@ document.addEventListener('DOMContentLoaded', () => {
         calculateSpinner: document.getElementById('calculate-spinner'),
         loadingSpinner: document.getElementById('loading-spinner')
     };
+
+    if (DOM.plotArea && window.ResizeObserver) {
+        const plotResizeObserver = new ResizeObserver(() => {
+            if (DOM.plotArea.data && window.Plotly) {
+                Plotly.Plots.resize(DOM.plotArea);
+            }
+        });
+        plotResizeObserver.observe(DOM.plotArea);
+    }
 
     // Debug log
     console.log(
@@ -138,38 +151,52 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const nSectionInput = document.getElementById('n_section');
-        const data = { 
-            n_section: nSectionInput ? nSectionInput.value : 1 
-        };
+        const wingForm = document.getElementById('wing-form');
+        const requestOptions = wingForm
+            ? {body: new FormData(wingForm)}
+            : {
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({n_section: document.getElementById('n_section')?.value || 1})
+            };
 
-        fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
+        const waitForCalculation = window.vlmCalculationPromise || Promise.resolve();
+        waitForCalculation.then(() => window.vlmpyCore
+            ? window.vlmpyCore.request(endpoint, {method: 'POST', ...requestOptions})
+            : fetch(endpoint, {method: 'POST', ...requestOptions}).then(response => response.json()))
         .then(data => {
-            if (data.status === 'error') {
-                if (window.messageCenter) {
-                    window.messageCenter.error(data.message || 'Plot generation failed');
-                }
-                return;
-            }
-
-            // Parse and create plot
-            const plotData = JSON.parse(data.plot);
+            // The optimized plot endpoint returns an object; accept the old
+            // string format as a compatibility fallback for legacy routes.
+            const plotData = typeof data.plot === 'string'
+                ? JSON.parse(data.plot)
+                : data.plot;
             const config = {
                 displaylogo: false,
                 modeBarButtonsToRemove: ['lasso2d'],
                 displayModeBar: true,
+                responsive: true,
                 toImageButtonOptions: {
                     filename,
                     format: 'svg'
                 }
             };
 
-            Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
+            // Keep the current camera and reuse the existing Plotly scene.
+            plotData.layout.uirevision = filename || endpoint;
+            plotData.layout.autosize = true;
+            plotData.layout.paper_bgcolor = 'rgba(0,0,0,0)';
+            plotData.layout.plot_bgcolor = 'rgba(0,0,0,0)';
+            if (plotData.layout.scene) {
+                plotData.layout.scene.bgcolor = 'rgba(0,0,0,0)';
+            }
+            const plotIsMounted = DOM.plotArea.classList.contains('js-plotly-plot')
+                && DOM.plotArea._fullLayout;
+            const plotPromise = plotIsMounted
+                ? Plotly.react(DOM.plotArea, plotData.data, plotData.layout, config)
+                : Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
+            plotPromise.catch(error => {
+                console.error('[plotData] Render error:', error);
+            });
+            plotPromise.then(() => Plotly.Plots.resize(DOM.plotArea));
         })
         .catch(error => {
             console.error('[plotData] Error:', error);
@@ -181,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // =================== SIDEBAR TOGGLE ===================
     const toggleSidebar = () => {
+        if (!DOM.menuToggle && !DOM.sidebar) return;
         if (!DOM.menuToggle || !DOM.sidebar || !DOM.overlay) {
             console.error('Sidebar, overlay, or menu-toggle elements missing');
             return;
@@ -215,6 +243,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // =================== DYNAMIC SECTIONS MANAGEMENT ===================
+    const refreshWingPreview = () => {
+        if (typeof window.renderWingPreview === 'function') {
+            window.renderWingPreview();
+        }
+    };
+
     const toggleElement = (element, button, hiddenInput, isFlap = false) => {
         if (!button || !element || !hiddenInput) {
             console.error(`Toggle${isFlap ? 'Flap' : 'Section'}: Element, button, or hidden input not found`);
@@ -247,12 +281,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Global toggle functions
     window.toggleFlap = (button) => {
         toggleElement(button.nextElementSibling, button, button.previousElementSibling, true);
+        refreshWingPreview();
     };
 
     window.toggleSection = (sectionId, buttonSelector) => {
         const section = document.getElementById(sectionId);
         const button = document.querySelector(buttonSelector);
         toggleElement(section, button, button.previousElementSibling);
+        refreshWingPreview();
     };
 
     // =================== WING SECTION MANAGEMENT ===================
@@ -268,7 +304,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'wing-section';
-        sectionDiv.style.opacity = '0';
+        sectionDiv.style.display = 'block';
+        sectionDiv.style.opacity = '1';
         const sectionNumber = sections.children.length + 1;
 
         // Default values
@@ -283,6 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
             span_fraction: defaultSection.span_fraction || 8.0,
             sweep: defaultSection.sweep || 15,
             dihedral: defaultSection.dihedral || 5,
+            twist: defaultSection.twist || 0,
             naca_root: defaultSection.NACA_root || '3215',
             naca_tip: defaultSection.NACA_tip || '1310',
             flap_start: defaultSection.flap_start || 0.2,
@@ -294,33 +332,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
         sectionDiv.innerHTML = `
             <h4>Section ${sectionNumber}</h4>
-            <label>Chord Root (m):</label>
-            <input type="number" name="chord_root[]" step="0.1" required aria-required="true" value="${defaults.chord_root}" placeholder="e.g., 1.5">
-            <label>Chord Tip (m):</label>
-            <input type="number" name="chord_tip[]" step="0.1" required aria-required="true" value="${defaults.chord_tip}" placeholder="e.g., 0.8">
-            <label>Span Fraction (m):</label>
-            <input type="number" name="span_fraction[]" step="any" required aria-required="true" value="${defaults.span_fraction}" placeholder="e.g., 0.25">
-            <label>Sweep Angle (deg):</label>
-            <input type="number" name="sweep[]" step="any" required aria-required="true" value="${defaults.sweep}" placeholder="e.g., 15">
-            <label>Dihedral Angle (deg):</label>
-            <input type="number" name="dihedral[]" step="any" required aria-required="true" value="${defaults.dihedral}" placeholder="e.g., 5">
-            <label>NACA Root:</label>
-            <input type="text" name="naca_root[]" required aria-required="true" value="${defaults.naca_root}" placeholder="e.g., 2412">
-            <label>NACA Tip:</label>
-            <input type="text" name="naca_tip[]" required aria-required="true" value="${defaults.naca_tip}" placeholder="e.g., 0012">
+            <label for="chord-root-${sectionNumber}">Chord Root (m):</label>
+            <input id="chord-root-${sectionNumber}" type="number" name="chord_root[]" step="0.1" required aria-required="true" value="${defaults.chord_root}" placeholder="e.g., 1.5">
+            <label for="chord-tip-${sectionNumber}">Chord Tip (m):</label>
+            <input id="chord-tip-${sectionNumber}" type="number" name="chord_tip[]" step="0.1" required aria-required="true" value="${defaults.chord_tip}" placeholder="e.g., 0.8">
+            <label for="span-fraction-${sectionNumber}">Span Fraction (m):</label>
+            <input id="span-fraction-${sectionNumber}" type="number" name="span_fraction[]" step="any" required aria-required="true" value="${defaults.span_fraction}" placeholder="e.g., 0.25">
+            <label for="sweep-${sectionNumber}">Sweep Angle (deg):</label>
+            <input id="sweep-${sectionNumber}" type="number" name="sweep[]" step="any" required aria-required="true" value="${defaults.sweep}" placeholder="e.g., 15">
+            <label for="dihedral-${sectionNumber}">Dihedral Angle (deg):</label>
+            <input id="dihedral-${sectionNumber}" type="number" name="dihedral[]" step="any" required aria-required="true" value="${defaults.dihedral}" placeholder="e.g., 5">
+            <label for="twist-${sectionNumber}">Twist (deg):</label>
+            <input id="twist-${sectionNumber}" type="number" name="twist[]" step="any" value="${defaults.twist}" placeholder="e.g., 0">
+            <label for="naca-root-${sectionNumber}">NACA Root:</label>
+            <input id="naca-root-${sectionNumber}" type="text" name="naca_root[]" required aria-required="true" value="${defaults.naca_root}" placeholder="e.g., 2412">
+            <label for="naca-tip-${sectionNumber}">NACA Tip:</label>
+            <input id="naca-tip-${sectionNumber}" type="text" name="naca_tip[]" required aria-required="true" value="${defaults.naca_tip}" placeholder="e.g., 0012">
             <input type="hidden" name="flap_toggled[]" value='0'>
             <button type="button" class="toggle-button" id="aileron-${sectionNumber}" aria-label="Toggle Aileron">Toggle Aileron</button>
             <div class="flap-params" style="display: none;">
-                <label>Flap Start (fraction):</label>
-                <input type="number" name="flap_start[]" step="any" value="${defaults.flap_start}" placeholder="e.g., 0.2">
-                <label>Flap End (fraction):</label>
-                <input type="number" name="flap_end[]" step="any" value="${defaults.flap_end}" placeholder="e.g., 0.8">
-                <label>Flap Hinge Chord (fraction):</label>
-                <input type="number" name="flap_hinge_chord[]" step="any" value="${defaults.flap_hinge_chord}" placeholder="e.g., 0.25">
-                <label>Deflection Angle (deg):</label>
-                <input type="number" name="deflection_angle[]" step="any" value="${defaults.deflection_angle}" placeholder="e.g., 20">
-                <label for="deflection-type">Deflection Type:</label>
-                <select name="deflection_type[]">
+                <label for="flap-start-${sectionNumber}">Flap Start (fraction):</label>
+                <input id="flap-start-${sectionNumber}" type="number" name="flap_start[]" step="any" value="${defaults.flap_start}" placeholder="e.g., 0.2">
+                <label for="flap-end-${sectionNumber}">Flap End (fraction):</label>
+                <input id="flap-end-${sectionNumber}" type="number" name="flap_end[]" step="any" value="${defaults.flap_end}" placeholder="e.g., 0.8">
+                <label for="flap-hinge-${sectionNumber}">Flap Hinge Chord (fraction):</label>
+                <input id="flap-hinge-${sectionNumber}" type="number" name="flap_hinge_chord[]" step="any" value="${defaults.flap_hinge_chord}" placeholder="e.g., 0.25">
+                <label for="deflection-angle-${sectionNumber}">Deflection Angle (deg):</label>
+                <input id="deflection-angle-${sectionNumber}" type="number" name="deflection_angle[]" step="any" value="${defaults.deflection_angle}" placeholder="e.g., 20">
+                <label for="deflection-type-${sectionNumber}">Deflection Type:</label>
+                <select id="deflection-type-${sectionNumber}" name="deflection_type[]">
                     <option value="symmetrical">Symmetrical</option>
                     <option value="antisymmetrical">Antisymmetrical</option>
                 </select>
@@ -328,10 +368,8 @@ document.addEventListener('DOMContentLoaded', () => {
         `;  
 
         sections.appendChild(sectionDiv);
-        setTimeout(() => {
-            sectionDiv.style.transition = 'opacity 0.3s';
-            sectionDiv.style.opacity = '1';
-        }, 10);
+        sectionDiv.style.transition = 'opacity 0.3s';
+        refreshWingPreview();
 
         const newButton = sectionDiv.querySelector(`#aileron-${sectionNumber}`);
         if (newButton) {
@@ -355,11 +393,12 @@ document.addEventListener('DOMContentLoaded', () => {
         lastSection.style.opacity = '0';
         setTimeout(() => {
             sections.removeChild(lastSection);
+            refreshWingPreview();
             console.log('Section removed');
         }, 300);
     };
 
-    // =================== FORM SUBMISSION HANDLERS - ACTUALIZADO ===================
+    // =================== FORM SUBMISSION HANDLERS - UPDATED ===================
     const handleFormSubmission = (form, endpoint, formName) => {
         if (!form) {
             console.error(`${formName} form not found`);
@@ -371,14 +410,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return Promise.reject(new Error('Form validation failed'));
         }
 
-        return fetch(endpoint, {
-            method: 'POST',
-            body: new FormData(form)
-        })
-            .then(response => response.json())
+        return (window.vlmpyCore
+            ? window.vlmpyCore.request(endpoint, {method: 'POST', body: new FormData(form)})
+            : fetch(endpoint, {method: 'POST', body: new FormData(form)}).then(response => response.json()))
             .then(data => {
                 console.log(`${formName} result:`, data.status, data.message);
-                window.messageCenter?.[data.status](`${data.message}`, 2000);
+                window.messageCenter?.success(data.message || `${formName} completed`, 2000);
+                return data;
             })
             .catch(error => {
                 console.error(`Error during ${formName.toLowerCase()} calculation:`, error);
@@ -390,16 +428,30 @@ document.addEventListener('DOMContentLoaded', () => {
     // Global calculation functions
     window.Calculate = () => {
         const wingForm = document.getElementById('wing-form');
-        handleFormSubmission(wingForm, '/wing', 'Wing')
+        const calculateButton = document.getElementById('calculate-button');
+        window.vlmpyCore?.setBusy(calculateButton, true, 'Calculating...');
+        window.vlmCalculationPromise = handleFormSubmission(wingForm, '/wing', 'Wing')
+            .then(() => {
+                window.location.assign('/results');
+            })
+            .finally(() => {
+                window.vlmpyCore?.setBusy(calculateButton, false);
+            });
+        return window.vlmCalculationPromise;
     };
 
     window.CalculateAngles = () => {
         const analisisForm = document.getElementById('analisis-form');
+        const calculateButton = document.getElementById('calculate-button');
+        window.vlmpyCore?.setBusy(calculateButton, true, 'Calculating...');
         if (DOM.calculateSpinner) DOM.calculateSpinner.style.display = 'inline-block';
-        handleFormSubmission(analisisForm, '/angles', 'Angles Analysis')
+        const promise = handleFormSubmission(analisisForm, '/angles', 'Angles Analysis')
             .finally(() => {
+                window.vlmpyCore?.setBusy(calculateButton, false);
                 if (DOM.calculateSpinner) DOM.calculateSpinner.style.display = 'none';
             });
+        window.vlmCalculationPromise = promise;
+        return promise;
     };
 
 

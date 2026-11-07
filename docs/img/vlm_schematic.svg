@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="570" viewBox="0 0 1200 570" role="img" aria-labelledby="title desc">
+  <title id="title">Steady vortex lattice method schematic</title>
+  <desc id="desc">A panelized wing in plan view and a detail showing the quarter-chord bound vortex, three-quarter-chord control point, panel normal, and downstream wake filaments.</desc>
+  <defs>
+    <marker id="arrow-flow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#284b63"/>
+    </marker>
+    <marker id="arrow-normal" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#248a78"/>
+    </marker>
+    <pattern id="panel-fill" width="18" height="18" patternUnits="userSpaceOnUse">
+      <rect width="18" height="18" fill="#edf4f5"/>
+    </pattern>
+    <style>
+      text { font-family: "Segoe UI", Arial, sans-serif; fill: #183247; }
+      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; }
+      .heading { font-size: 21px; font-weight: 700; }
+      .label { font-size: 15px; font-weight: 600; }
+      .small { font-size: 13px; fill: #526977; }
+      .panel { fill: #ffffff; stroke: #cbd9dc; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="570" fill="#f5f8f6"/>
+  <path d="M0 0 H1200 V12 H0 Z" fill="#248a78"/>
+  <text x="44" y="54" class="eyebrow" fill="#248a78">VLMPY / AERODYNAMIC MODEL</text>
+  <text x="44" y="88" font-size="29" font-weight="700">Steady vortex lattice method</text>
+  <text x="44" y="114" class="small">Thin lifting surface represented by discrete panels and horseshoe vortices</text>
+
+  <rect x="40" y="140" width="670" height="365" rx="8" class="panel"/>
+  <text x="66" y="177" class="heading">Wing lattice</text>
+  <text x="66" y="200" class="small">Plan view / chordwise x spanwise paneling</text>
+
+  <g transform="translate(104 235)">
+    <path d="M80 190 L500 190 L500 20 L160 20 Z" fill="url(#panel-fill)" stroke="#284b63" stroke-width="2.5"/>
+    <path d="M185 190 L245 20 M290 190 L330 20 M395 190 L415 20" fill="none" stroke="#9ab1ba" stroke-width="1.3"/>
+    <path d="M96 156 H500 M112 122 H500 M128 88 H500 M144 54 H500" fill="none" stroke="#9ab1ba" stroke-width="1.3"/>
+    <path d="M209 122 L306 122 L314 88 L221 88 Z" fill="#fbe9d8" fill-opacity="0.8" stroke="#df8a3d" stroke-width="1.8"/>
+    <path d="M233 122 L244 88 M233 122 H548 M244 88 H548" fill="none" stroke="#df8a3d" stroke-width="2.7" stroke-dasharray="8 7"/>
+    <path d="M233 122 L244 88" fill="none" stroke="#df8a3d" stroke-width="4"/>
+    <circle cx="286" cy="105" r="7" fill="#248a78" stroke="#ffffff" stroke-width="2"/>
+    <path d="M-30 105 H40" fill="none" stroke="#284b63" stroke-width="2.4" marker-end="url(#arrow-flow)"/>
+    <path d="M540 224 V194" fill="none" stroke="#284b63" stroke-width="2.2" marker-end="url(#arrow-flow)"/>
+    <text x="-28" y="92" class="small">Uinf</text>
+    <text x="548" y="198" class="small">+y</text>
+    <text x="556" y="84" class="small">wake</text>
+    <text x="55" y="214" class="small">leading edge</text>
+    <text x="412" y="215" class="small">trailing edge</text>
+    <text x="296" y="101" class="small">control point</text>
+    <text x="169" y="151" class="small" fill="#bf6a2a">bound segment</text>
+  </g>
+  <text x="66" y="478" class="small">Highlighted panel: bound segment at 1/4 chord; wake filaments extend downstream.</text>
+
+  <rect x="730" y="140" width="430" height="365" rx="8" class="panel"/>
+  <text x="756" y="177" class="heading">One panel</text>
+  <text x="756" y="200" class="small">Local chordwise view / schematic, not to scale</text>
+
+  <g transform="translate(785 246)">
+    <path d="M0 55 L270 55 L310 186 L40 186 Z" fill="#edf4f5" stroke="#284b63" stroke-width="2.5"/>
+    <path d="M0 55 L40 186 M270 55 L310 186" fill="none" stroke="#9ab1ba" stroke-width="1.5"/>
+    <path d="M67.5 55 L107.5 186" fill="none" stroke="#df8a3d" stroke-width="5"/>
+    <path d="M67.5 55 L423 55 M107.5 186 L463 186" fill="none" stroke="#df8a3d" stroke-width="2.5" stroke-dasharray="8 7"/>
+    <circle cx="202.5" cy="120.5" r="8" fill="#248a78" stroke="#ffffff" stroke-width="2.5"/>
+    <path d="M202.5 120.5 L202.5 72" fill="none" stroke="#248a78" stroke-width="2.4" marker-end="url(#arrow-normal)"/>
+    <path d="M-24 112 H-2" fill="none" stroke="#284b63" stroke-width="2.2" marker-end="url(#arrow-flow)"/>
+    <text x="-23" y="98" class="small">Uinf</text>
+    <text x="-5" y="45" class="small">leading edge</text>
+    <text x="254" y="210" class="small">trailing edge</text>
+    <text x="36" y="214" class="small" fill="#bf6a2a">bound segment at 1/4 chord</text>
+    <text x="215" y="85" class="small" fill="#248a78">control point at 3/4 chord</text>
+    <text x="212" y="69" class="small" fill="#248a78">panel normal</text>
+    <text x="365" y="43" class="small">wake</text>
+  </g>
+  <text x="756" y="478" class="small">No viscous or profile-drag model is implied.</text>
+
+  <text x="44" y="542" class="small">Convention shown: x points toward the trailing edge; y is spanwise; z is upward.</text>
+  <text x="1156" y="542" text-anchor="end" class="small">VLMPy</text>
+</svg>

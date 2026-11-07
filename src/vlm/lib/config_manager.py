@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 System for loading and saving geometric configurations in JSON format
 
@@ -20,6 +23,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
 import hashlib
+import re
 
 class GeometryConfigManager:
     """
@@ -133,9 +137,18 @@ class GeometryConfigManager:
         return errors
     
     def calculate_checksum(self, config: Dict[str, Any]) -> str:
-        """Calculates an MD5 checksum to verify data integrity."""
-        config_str = json.dumps(config, sort_keys=True)
-        return hashlib.md5(config_str.encode()).hexdigest()
+        """Calculate a canonical SHA-256 checksum for a configuration."""
+        config_str = json.dumps(config, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        return hashlib.sha256(config_str.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        filename = str(filename or '').strip()
+        if not filename or filename in {'.', '..'}:
+            raise ValueError('Filename is required')
+        if Path(filename).name != filename or not re.fullmatch(r'[A-Za-z0-9._-]+', filename):
+            raise ValueError('Filename must not contain path separators or special characters')
+        return filename
     
     def create_backup(self, filename: str) -> Optional[str]:
         """
@@ -179,11 +192,13 @@ class GeometryConfigManager:
             "message": "",
             "filename": "",
             "backup_created": False,
+            "replaced_existing": False,
             "checksum": ""
         }
         
         try:
             # Ensure .json extension
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
             
@@ -201,6 +216,7 @@ class GeometryConfigManager:
             
             # ALWAYS create backup if the file exists
             if file_path.exists():
+                result["replaced_existing"] = True
                 backup_path = self.create_backup(filename)
                 result["backup_created"] = backup_path is not None
             
@@ -241,6 +257,7 @@ class GeometryConfigManager:
         
         try:
             # Ensure .json extension
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
             
@@ -255,12 +272,14 @@ class GeometryConfigManager:
                 config = json.load(f)
             
             # Extract metadata if present
-            metadata = config.pop("metadata", {})
+            metadata = config.get("metadata", {})
+            config = {key: value for key, value in config.items() if key != 'metadata'}
             result["version"] = metadata.get("version", "unknown")
             
             # Verify checksum if available
             calculated_checksum = self.calculate_checksum(config)
-            result["checksum_valid"] = calculated_checksum == metadata["checksum"]
+            stored_checksum = metadata.get("checksum")
+            result["checksum_valid"] = stored_checksum is not None and calculated_checksum == stored_checksum
             if not result["checksum_valid"]:
                 self.logger.warning(f"Checksum does not match for {filename}")
             else:
@@ -298,19 +317,46 @@ class GeometryConfigManager:
                     config = json.load(f)
                 
                 metadata = config.get("metadata", {})
+                wing_sections = config.get("wing_sections", config.get("wingsections", []))
                 
                 config_info = {
                     "filename": file_path.name,
+                    "name": config.get("name"),
+                    "description": config.get("description", ""),
                     "path": str(file_path),
                     "size": file_path.stat().st_size,
                     "created_at": metadata.get("created_at", "unknown"),
                     "modified_at": metadata.get("modified_at", "unknown"),
                     "version": metadata.get("version", "unknown"),
-                    "has_wing": "wingsections" in config,
-                    "has_horizontal_stabilizer": "horizontalstabilizer" in config,
-                    "has_vertical_stabilizer": "verticalstabilizer" in config,
-                    "wing_sections_count": len(config.get("wingsections", []))
+                    "has_wing": "wing_sections" in config or "wingsections" in config,
+                    "has_horizontal_stabilizer": "horizontal_stabilizer" in config or "horizontalstabilizer" in config,
+                    "has_vertical_stabilizer": "vertical_stabilizer" in config or "verticalstabilizer" in config,
+                    "wing_sections_count": len(wing_sections),
+                    "wing_sections_preview": [
+                        {
+                            "chord_root": section.get("chord_root", section.get("chordroot")),
+                            "chord_tip": section.get("chord_tip", section.get("chordtip")),
+                            "span_fraction": section.get("span_fraction", section.get("spanfraction")),
+                            "sweep": section.get("sweep", 0),
+                            "dihedral": section.get("dihedral", 0),
+                        }
+                        for section in wing_sections
+                        if isinstance(section, dict)
+                    ],
+                    "horizontal_stabilizer_preview": config.get("horizontal_stabilizer", config.get("horizontalstabilizer")),
+                    "vertical_stabilizer_preview": config.get("vertical_stabilizer", config.get("verticalstabilizer")),
                 }
+                if config.get("type") == "airfoil":
+                    config_info.update({
+                        "type": "airfoil",
+                        "naca": config.get("naca"),
+                        "u": config.get("u"),
+                        "alpha": config.get("alpha"),
+                        "chord": config.get("chord"),
+                        "points": config.get("n")
+                    })
+                else:
+                    config_info["type"] = "plane"
                 
                 configs.append(config_info)
                 
@@ -336,6 +382,7 @@ class GeometryConfigManager:
         }
 
         try:
+            filename = self._safe_filename(filename)
             if not filename.endswith('.json'):
                 filename += '.json'
 
@@ -366,8 +413,9 @@ class GeometryConfigManager:
 # Factory function to create the configuration manager
 def create_config_manager():
     """Factory function to create the configuration manager."""
-    config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'saved_configs')
-    backup_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'saved_configs/backups')
+    data_dir = os.environ.get('VLMPY_DATA_DIR') or os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+    config_dir = os.path.join(data_dir, 'saved_configs')
+    backup_dir = os.path.join(data_dir, 'saved_configs', 'backups')
     return GeometryConfigManager(config_dir, backup_dir)
 
 # Initialize the manager globally

@@ -1,9 +1,39 @@
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
+
 from threading import Thread
+import json
+import sys
+import threading
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import os
 import psutil
 from PySide6 import QtCore, QtWidgets, QtWebEngineCore, QtWebEngineWidgets, QtGui
+from waitress import create_server
+from waitress.wasyncore import close_all
+
+
+class _Notifier(QtCore.QObject):
+    message = QtCore.Signal(str)
+
+
+class LocalWSGIServer:
+    def __init__(self, app, host, port, threads):
+        self._socket_map = {}
+        self._server = create_server(app, host=host, port=port, threads=threads,
+                                     map=self._socket_map, asyncore_loop_timeout=1)
+        self._thread = Thread(target=self._server.run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        close_all(self._socket_map)
+        self._server.task_dispatcher.shutdown(cancel_pending=True, timeout=1)
+        if self._thread.is_alive():
+            self._thread.join(timeout=2)
 
 class WebUI:
     DEFAULT_URL = "localhost"
@@ -16,12 +46,15 @@ class WebUI:
         self._debug = debug
         self._url = f"http://{url}:{port}"
         self._using_win64 = using_win64
+        self._host = url
+        self._port = port
+        self._server = None
 
         # Initialize thread pool for background tasks
         self._thread_pool = ThreadPoolExecutor(max_workers=self.MAX_WORKERS)
 
         # Initialize Qt application
-        self._qt_app = QtWidgets.QApplication([])
+        self._qt_app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         if icon_path:
             self._qt_app.setWindowIcon(QtGui.QIcon(icon_path))
         if app_name:
@@ -33,12 +66,13 @@ class WebUI:
         self._page = CustomWebEnginePage(self._view)
         self._view.setPage(self._page)
 
-        # Initialize Flask thread
-        self._flask_thread = Thread(
-            target=self._run_flask,
-            args=(url, port, debug, using_win64),
-            daemon=True
-        )
+        self._qt_app.aboutToQuit.connect(self.stop)
+
+        self._load_failures = 0
+        self._notifier = _Notifier()
+        self._notifier.message.connect(self.notify_error)
+        self._page.renderProcessTerminated.connect(self._handle_render_crash)
+        self._install_exception_hooks()
 
         # Optimize process priority
         self._optimize_resources()
@@ -48,8 +82,21 @@ class WebUI:
 
     def run(self):
         """Start Flask and GUI components."""
-        self._flask_thread.start()
+        self.start()
+        self._qt_app.exec()
+
+    def start(self):
+        """Start Flask and show the GUI within the existing Qt event loop."""
+        if self._server is None:
+            self._flask_app.debug = self._debug
+            self._server = LocalWSGIServer(self._flask_app, self._host, self._port, self.MAX_WORKERS)
+            self._server.start()
         self._run_gui()
+
+    def stop(self):
+        if self._server is not None:
+            self._server.stop()
+            self._server = None
 
     def _setup_ui(self):
         """Configure modern UI components."""
@@ -87,16 +134,43 @@ class WebUI:
 
 
     def _handle_load_finished(self, ok):
-        if not ok:
-            print("[INFO] Reloading...")
-            QtCore.QTimer.singleShot(1000, self._view.reload)  # espera 1s y recarga
+        if ok:
+            self._load_failures = 0
+            return
+        self._load_failures += 1
+        if self._load_failures <= 10:
+            QtCore.QTimer.singleShot(1000, self._view.reload)  # Wait 1 second, then reload.
+            return
+        self._view.setHtml(
+            "<body style='background:#0a1017;color:#e7eef0;font-family:sans-serif;text-align:center;padding-top:20vh'>"
+            "<h2>VLMPy could not load the interface</h2>"
+            "<button onclick='location.href=\"" + self._url + "\"'>Retry</button></body>"
+        )
+        self._load_failures = 0
+
+    def notify_error(self, message):
+        """Show an error through the in-page notification center."""
+        js = f"window.messageCenter && window.messageCenter.error({json.dumps(str(message))}, 10000);"
+        self._page.runJavaScript(js)
+
+    def _handle_render_crash(self, status, exit_code):
+        self.notify_error(f"The renderer stopped unexpectedly (code {exit_code}). Reloading...")
+        QtCore.QTimer.singleShot(500, self._view.reload)
+
+    def _install_exception_hooks(self):
+        def report(exc_type, exc, tb):
+            traceback.print_exception(exc_type, exc, tb)
+            self._notifier.message.emit(f"Unexpected error: {exc}")
+
+        sys.excepthook = report
+        threading.excepthook = lambda args: report(args.exc_type, args.exc_value, args.exc_traceback)
 
 
     def _run_gui(self):
         """Configure and start the GUI."""
         self._view.load(QtCore.QUrl(self._url))
 
-        # Añadir gestión de fallo en carga inicial
+        # Handle an initial page load failure.
         self._view.loadFinished.connect(self._handle_load_finished)
 
         settings = self._view.page().settings()
@@ -104,14 +178,6 @@ class WebUI:
         settings.setAttribute(QtWebEngineCore.QWebEngineSettings.PluginsEnabled, True)
 
         self._main_window.showMaximized()
-        self._qt_app.exec()
-
-    def _run_flask(self, host, port, debug=False, using_win32=False):
-        """Run the Flask application with multithreading."""
-        if using_win32:
-            import pythoncom
-            pythoncom.CoInitialize()
-        self._flask_app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)
 
     def _optimize_resources(self):
         """Optimize CPU and memory resource allocation."""

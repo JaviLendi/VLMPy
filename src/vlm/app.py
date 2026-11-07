@@ -1,3 +1,6 @@
+# Author: Javier Lendínez
+# SPDX-License-Identifier: AGPL-3.0-only
+
 import os
 # Limit BLAS/OMP threads early to avoid oversubscription on multi-core systems
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -30,7 +33,7 @@ except Exception:
 try:
     from flask import (
         Flask, render_template, request, jsonify, session,
-        redirect, url_for, send_file
+        redirect, url_for, send_file, make_response
     )
 except Exception as e:
     raise ImportError("Flask is required for this application") from e
@@ -55,12 +58,21 @@ except Exception as e:
     raise ImportError("plotly is required for plotting endpoints") from e
 
 import re
-
-# Plotly default format
-pio.kaleido.scope.default_format = "svg"
-
-# Local imports (asegúrate que el path '../' es correcto)
 import sys
+import shutil
+from werkzeug.utils import secure_filename
+
+# Frozen (PyInstaller): bundled resources live in _MEIPASS/vlm; writable data goes next to the exe.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS) / "vlm"
+    USER_DIR = Path(sys.executable).parent
+    if not (USER_DIR / "data").exists():
+        shutil.copytree(BASE_DIR / "data", USER_DIR / "data")
+else:
+    BASE_DIR = USER_DIR = Path(__file__).parent
+os.environ["VLMPY_DATA_DIR"] = str(USER_DIR / "data")
+
+# Local imports (ensure the '../' path is correct)
 sys.path.append('../')
 from lib.vlm import (
     VLM, plot_distribution_all, plot_wing_heatmap,
@@ -68,6 +80,9 @@ from lib.vlm import (
     plot_distribution, plot_CL_CD, plot_CLCD_vs_alpha
 )
 from lib.naca import plot_naca_airfoil, naca_csv
+from lib.naca import naca_airfoil
+from lib.panel2d import solve_airfoil_panels
+from lib.geometry_serialization import serialize_airfoil, serialize_panel_geometry
 from lib.geometry import (
     plot_wing_geometry, plot_wing_geometry_2d,
     plot_wing_discretization_2d, plot_wing_discretization_3d
@@ -79,18 +94,46 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # App
-app = Flask(__name__)
-Compress(app)
+app = Flask(__name__,
+            template_folder=str(BASE_DIR / "templates"),
+            static_folder=str(BASE_DIR / "static"))
+if Compress is not None:
+    Compress(app)
 app.secret_key = os.urandom(24)
-ui = WebUI(app, debug=True)
 
 # Paths
-BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = USER_DIR / "data"
 SAVED_AIRFOILS = DATA_DIR / "saved_airfoils"
 SAVED_STATES = DATA_DIR / "saved_states"
-SAVED_AIRFOILS.mkdir(exist_ok=True)
-SAVED_STATES.mkdir(exist_ok=True)
+SAVED_AIRFOILS.mkdir(parents=True, exist_ok=True)
+SAVED_STATES.mkdir(parents=True, exist_ok=True)
+
+
+def _validated_result_filename(filename, require_json=False):
+    if not isinstance(filename, str) or not filename or len(filename) > 255:
+        return None
+    safe_filename = secure_filename(filename)
+    if safe_filename != filename or filename in {'.', '..'}:
+        return None
+    if not all(
+        character.isascii() and (character.isalnum() or character in '._-')
+        for character in filename
+    ):
+        return None
+    if require_json and (not filename.endswith('.json') or filename == '.json'):
+        return None
+    return safe_filename
+
+
+def _result_file_path(filename):
+    safe_filename = _validated_result_filename(filename)
+    if safe_filename is None:
+        raise ValueError('Invalid result filename')
+    states_dir = SAVED_STATES.resolve()
+    result_path = (states_dir / safe_filename).resolve()
+    if result_path.parent != states_dir:
+        raise ValueError('Invalid result filename')
+    return result_path
 
 # Resource optimization (robust, non‑intrusive)
 def optimize_resources(reserve_cores: int = 1, omp_threads: Optional[int] = None):
@@ -178,9 +221,12 @@ thread_pool = ThreadPoolExecutor(max_workers=CPU_COUNT)
 # Global state (with locks)
 vlm_sessions: Dict[str, VLM] = {}
 vlm_sessions_lock = Lock()
+vlm_session_generations: Dict[str, int] = {}
 
 default_cache: Dict[str, Any] = {}
 sessions_lock = Lock()  # for short duration disk writes / critical sections
+plot_cache: Dict[str, Any] = {}
+PLOT_CACHE_MAX_ENTRIES = 64
 
 # Helpers for parsing and validation (fast, safe, small overhead)
 def safe_float(val: Any, default: float = 0.0) -> float:
@@ -199,17 +245,17 @@ def safe_int(val: Any, default: int = 0) -> int:
 def load_default_data_sync(filename: str, cache_key: str) -> dict:
     if cache_key in default_cache:
         return default_cache[cache_key]
-    path = BASE_DIR / filename
+    path = USER_DIR / filename
     try:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         default_cache[cache_key] = data
         return data
     except FileNotFoundError:
-        logger.warning(f"{filename} no encontrado en {path}")
+        logger.warning(f"{filename} not found at {path}")
         default_cache[cache_key] = {}
     except json.JSONDecodeError as e:
-        logger.error(f"JSON inválido en {filename}: {e}", exc_info=True)
+        logger.error(f"Invalid JSON in {filename}: {e}", exc_info=True)
         default_cache[cache_key] = {}
     return {}
 
@@ -232,11 +278,24 @@ def session_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+def legacy_compatibility(f):
+    """Mark retained legacy endpoints while the JSON APIs are preferred."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        response = f(*args, **kwargs)
+        if isinstance(response, tuple):
+            response = make_response(*response)
+        response.headers['Deprecation'] = 'true'
+        response.headers['X-VLMPy-API-Status'] = 'legacy'
+        return response
+    return decorated_function
+
 @app.before_request
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = str(uuid4())
-        logger.info(f"Nueva sesión creada: {session['session_id']}")
+        logger.info(f"New session created: {session['session_id']}")
     if "appearance_mode" not in session:
         session["appearance_mode"] = "System"
     if "effective_mode" not in session:
@@ -270,30 +329,76 @@ def apply_plotly_theme(fig: go.Figure) -> go.Figure:
     fig.update_layout(template=template)
     return fig
 
+
+def _validate_naca_code(value: Any) -> str:
+    code = str(value or '').strip()
+    if len(code) != 4 or not code.isdigit():
+        raise ValueError("NACA must be a four-digit code")
+    return code
+
+
+def _interpolate_custom_airfoil(data: dict[str, Any], point_count: int) -> tuple[np.ndarray, np.ndarray]:
+    upper = np.asarray(data.get('points_upper', []), dtype=float)
+    lower = np.asarray(data.get('points_lower', []), dtype=float)
+    if upper.ndim != 2 or lower.ndim != 2 or upper.shape[1] != 2 or lower.shape[1] != 2:
+        raise ValueError("Custom airfoil points must be arrays of [x, z] pairs")
+    if upper.shape[0] < 2 or lower.shape[0] < 2:
+        raise ValueError("Custom airfoil requires at least two points per surface")
+    if not np.isfinite(upper).all() or not np.isfinite(lower).all():
+        raise ValueError("Custom airfoil contains non-finite points")
+    chord = safe_float(data.get('chord', 1.0), 1.0)
+    if chord <= 0:
+        raise ValueError("Chord must be greater than zero")
+    x_grid = np.linspace(0.0, chord, point_count)
+    upper_order = np.argsort(upper[:, 0])
+    lower_order = np.argsort(lower[:, 0])
+    upper_z = np.interp(x_grid, upper[upper_order, 0], upper[upper_order, 1])
+    lower_z = np.interp(x_grid, lower[lower_order, 0], lower[lower_order, 1])
+    return np.concatenate((x_grid[::-1], x_grid[1:])), np.concatenate((upper_z[::-1], lower_z[1:]))
+
 # VLM: helper to create, save, and store in global dict
-def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str) -> dict:
+def _vlm_create_and_save(plane: dict, u: float, rho: float, alpha: float, beta: float, n: int, m: int, session_id: str, generation: int) -> dict:
     try:
         vlm = VLM(plane, u, rho, alpha, beta, n, m)
-        # operación que depende de VLM
-        vlm.save_and_load_plane_variables(filename=str(BASE_DIR / 'data' / 'cache_plane_variables.txt'), option='save_and_load')
-        #timestamp = datetime.now().strftime("%d%m%y%H%M%S")
-        #state_path = SAVED_STATES / f"{session_id}_{timestamp}.pkl"
-        #vlm.save_state(str(state_path))
         with vlm_sessions_lock:
+            if vlm_session_generations.get(session_id, 0) != generation:
+                return {"status": "cancelled", "message": "Calculation invalidated by plane reset."}
+            vlm.save_and_load_plane_variables(filename=str(DATA_DIR / 'cache_plane_variables.txt'), option='save_and_load')
             vlm_sessions[session_id] = vlm
         return {"status": "success", "message": "Wing design computed."}
     except Exception as e:
         logger.exception("VLM computation error")
-        return {"status": "error", "message": f"VLM computation failed: {e}"}
+        return {"status": "error", "message": "VLM computation failed."}
 
-def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None):
-    # Envía el trabajo a thread_pool y espera el resultado (manteniendo la API existente)
-    future = thread_pool.submit(_vlm_create_and_save, plane, u, rho, alpha, beta, n, m, session_id)
+def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Optional[float] = None, generation: Optional[int] = None):
+    # Submit the work to thread_pool and wait for the result, preserving the existing API.
+    if generation is None:
+        with vlm_sessions_lock:
+            generation = vlm_session_generations.get(session_id, 0)
+    future = thread_pool.submit(_vlm_create_and_save, plane, u, rho, alpha, beta, n, m, session_id, generation)
     try:
         return future.result(timeout=timeout)
     except Exception as e:
         logger.exception("Error waiting VLM future")
-        return {"status": "error", "message": f"VLM thread failed: {e}"}
+        return {"status": "error", "message": "VLM computation failed."}
+
+def _wants_page() -> bool:
+    dest = request.headers.get("Sec-Fetch-Dest")
+    if dest:
+        return dest in ("document", "iframe")
+    return request.method == "GET" and request.accept_mimetypes.best == "text/html"
+
+@app.errorhandler(Exception)
+def handle_any_exception(exc):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        code, message = exc.code or 500, f"{exc.name}: {exc.description}"
+    else:
+        logger.exception("Unhandled exception")
+        code, message = 500, f"Unexpected error: {exc}"
+    if _wants_page():
+        return render_template("error.html", message=message), code
+    return jsonify({"status": "error", "message": message}), code
 
 # Routes
 @app.route("/")
@@ -317,6 +422,12 @@ def _parse_wing_form(form) -> dict:
             sweep = np.radians(safe_float(form.getlist("sweep[]")[i], 0.0))
             alpha = np.radians(safe_float(form.get("alpha", 0.0), 0.0))
             dihedral = np.radians(safe_float(form.getlist("dihedral[]")[i], 0.0))
+            # Optional per-section geometric twist (degrees in the form -> radians internally)
+            try:
+                twist_deg_list = form.getlist("twist[]")
+                twist = np.radians(safe_float(twist_deg_list[i], 0.0)) if i < len(twist_deg_list) else 0.0
+            except Exception:
+                twist = 0.0
             naca_root = form.getlist("naca_root[]")[i] if i < len(form.getlist("naca_root[]")) else ""
             naca_tip = form.getlist("naca_tip[]")[i] if i < len(form.getlist("naca_tip[]")) else ""
 
@@ -326,6 +437,7 @@ def _parse_wing_form(form) -> dict:
                 "span_fraction": span_fraction,
                 "sweep": sweep,
                 "alpha": alpha,
+                "twist": twist,
                 "dihedral": dihedral,
                 "NACA_root": naca_root,
                 "NACA_tip": naca_tip
@@ -386,6 +498,8 @@ def plane_route():
             if not session_id:
                 logger.error("Session ID missing in /wing POST")
                 return jsonify({"status": "error", "message": "Session ID missing"}), 400
+            with vlm_sessions_lock:
+                request_generation = vlm_session_generations.get(session_id, 0)
 
             plane = _parse_wing_form(form)
             u = safe_float(form.get("u", 50.0))
@@ -395,27 +509,65 @@ def plane_route():
             n = safe_int(form.get("n", 10), 10)
             m = safe_int(form.get("m", 10), 10)
 
-            # Check if the plane has at least one wing section
+            # A loaded configuration is the authoritative fallback when a
+            # stale browser DOM omits its dynamically-created section inputs.
             if not plane.get("wing_sections"):
-                return jsonify({"status": "error", "message": "At least one wing section is required."}), 400
+                with vlm_sessions_lock:
+                    existing_vlm = vlm_sessions.get(session_id)
+                if existing_vlm and existing_vlm.plane.get("wing_sections"):
+                    logger.warning("Wing form omitted sections; using the loaded VLM configuration")
+                    plane = existing_vlm.export_configuration(include_flight=False)
+                    u = existing_vlm.u
+                    rho = existing_vlm.rho
+                    alpha = existing_vlm.alpha
+                    beta = existing_vlm.beta
+                    n = existing_vlm.n
+                    m = existing_vlm.m
+                else:
+                    return jsonify({"status": "error", "message": "At least one wing section is required."}), 400
             
 
             logger.info(f"Submitting VLM computation for session: {session_id}")
 
             # Execute VLM computation asynchronously but wait for result here
-            result = compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id)
+            result = compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id,
+                                       generation=request_generation)
             logger.info(f"VLM computation result: {result.keys() if isinstance(result, dict) else result}, vlm_sessions keys: {list(vlm_sessions.keys())}")
 
+            if result.get("status") == "cancelled":
+                return jsonify(result), 409
             return jsonify(result), 200 if result.get("status") == "success" else 500
 
         except ValueError as e:
             logger.error("Invalid input in /wing", exc_info=True)
-            return jsonify({"status": "error", "message": f"Invalid input: {e}"}), 400
+            return jsonify({"status": "error", "message": "Invalid input"}), 400
         except Exception as e:
             logger.exception("Error in /wing")
-            return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
+            return jsonify({"status": "error", "message": "Server error"}), 500
 
-    return render_template("wing.html", default_plane=default_plane, default_parameters=default_parameters)
+    saved_config = None
+    with vlm_sessions_lock:
+        session_vlm = vlm_sessions.get(session.get("session_id"))
+    if session_vlm is not None and session_vlm.plane.get("wing_sections"):
+        saved_config = session_vlm.export_configuration(include_flight=True)
+        saved_config["angle_unit"] = "rad"
+    initial_plane = saved_config or {**default_plane, "angle_unit": "deg"}
+
+    response = make_response(render_template("wing.html", default_plane=default_plane,
+                                             default_parameters=default_parameters,
+                                             initial_plane=initial_plane))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@app.route("/api/reset_plane", methods=["POST"])
+@session_required
+def reset_plane():
+    session_id = session.get("session_id")
+    with vlm_sessions_lock:
+        vlm_session_generations[session_id] = vlm_session_generations.get(session_id, 0) + 1
+        removed = vlm_sessions.pop(session_id, None) is not None
+    logger.info("Plane reset confirmed for session %s; VLM removed: %s", session_id, removed)
+    return jsonify({"status": "success", "removed": removed})
 
 @app.route("/angles", methods=["POST"])
 @session_required
@@ -439,7 +591,12 @@ def angles():
         if vlm.results is None or 'CL' not in vlm.results or 'CD' not in vlm.results:
             return jsonify({"status": "error", "message": "Failed to compute coefficients"}), 500
 
-        return jsonify({"status": "success", "message": "Coefficients computed successfully"}), 200
+        results = json.loads(json.dumps(vlm.results, default=float))
+        return jsonify({
+            "status": "success",
+            "message": "Coefficients computed successfully",
+            "results": results,
+        }), 200
 
     except Exception as e:
         logger.exception("Error in /angles")
@@ -454,15 +611,8 @@ def results():
     def compute(vlm: VLM):
         if vlm is None:
             raise ValueError("VLM object is not initialized")
-        if vlm.wing_geometry is None:
-            logger.info("Calculating geometry...")
-            vlm.calculate_geometry()
-        if vlm.panel_data is None:
-            logger.info("Calculating discretization...")
-            vlm.calculate_discretization()
-        if not hasattr(vlm, 'lift'):
-            logger.info("Calculating wing lift...")
-            vlm.calculate_wing_lift()
+        logger.info("Ensuring VLM geometry, discretization, and solution are current...")
+        vlm.calculate_wing_lift()
         return vlm
 
     try:
@@ -472,13 +622,14 @@ def results():
             logger.error("VLM not initialized despite session check")
             return redirect(url_for("plane_route"))
 
-        if vlm.results is None:
-            future = thread_pool.submit(compute, vlm)
-            vlm = future.result()
+        previous_results = vlm.results
+        future = thread_pool.submit(compute, vlm)
+        vlm = future.result()
+        if vlm.results is None or previous_results is None:
             #save state after computation
             timestamp = datetime.now().strftime("%d%m%y%H%M%S")
-            state_path = SAVED_STATES / f"{"results"}_{timestamp}.pkl"
-            vlm.save_state(str(state_path))
+            state_path = SAVED_STATES / f"results_{timestamp}.json"
+            vlm.save_results(str(state_path))
 
         wing_lift_total = np.sum(vlm.lift_sum.get('lift_wing', [])) if hasattr(vlm, 'lift_sum') else None
         hs_lift_total = np.sum(vlm.lift_sum.get('lift_hs', [])) if hasattr(vlm, 'lift_sum') else None
@@ -486,6 +637,14 @@ def results():
 
         cl = f"{vlm.CL:.4f}" if getattr(vlm, 'CL', None) is not None else "--"
         cd = f"{vlm.CD:.4f}" if getattr(vlm, 'CD', None) is not None else "--"
+        force_coefficients = {
+            key: f"{float(vlm.force_coefficients[key]):.5f}"
+            for key in ('CX', 'CY', 'CZ')
+        }
+        moment_coefficients = {
+            key: f"{float(vlm.moment_coefficients[key]):.5f}"
+            for key in ('Cl', 'Cm', 'Cn')
+        }
         total_lift = f"{vlm.lift:.2f}" if getattr(vlm, 'lift', None) is not None else "--"
         total_drag = f"{vlm.drag:.2f}" if getattr(vlm, 'drag', None) is not None else "--"
         wing_lift = f"{wing_lift_total:.2f}" if wing_lift_total is not None else "--"
@@ -496,11 +655,35 @@ def results():
             "results.html",
             cl=cl, cd=cd, total_lift=total_lift, total_drag=total_drag,
             wing_lift=wing_lift, hs_lift=hs_lift, vs_lift=vs_lift,
+            force_coefficients=force_coefficients,
+            moment_coefficients=moment_coefficients,
             results=vlm.results
         )
     except Exception as e:
         logger.exception("Error in /results")
+        if _wants_page():
+            return render_template("error.html", message=f"Error computing results: {e}"), 500
         return jsonify({"status": "error", "message": f"Exception: {e}"}), 500
+
+@app.route('/api/aerodynamics/derivatives', methods=['POST'])
+@session_required
+def calculate_aerodynamic_derivatives_api():
+    try:
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({'status': 'error', 'message': 'No active VLM session'}), 400
+        request_data = request.get_json(silent=True) or {}
+        step_deg = float(request_data.get('step_deg', 0.1))
+        derivatives = vlm.calculate_static_derivatives(step_deg=step_deg)
+        derivatives = json.loads(json.dumps(derivatives, default=float))
+        return jsonify({'status': 'success', 'derivatives': derivatives})
+    except (TypeError, ValueError) as e:
+        return jsonify({'status': 'error', 'message': 'Invalid derivative parameters'}), 400
+    except Exception as e:
+        logger.exception('Error calculating aerodynamic derivatives')
+        return jsonify({'status': 'error', 'message': 'Unable to calculate aerodynamic derivatives'}), 500
 
 @app.route('/plot/airfoil', methods=['POST'])
 @session_required
@@ -518,9 +701,100 @@ def plot_airfoil():
         return jsonify({"plot": plot_json})
     except Exception as e:
         logger.exception("Error en /plot/airfoil")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Unable to generate airfoil plot"}), 500
+
+
+@app.route('/api/airfoil/preview', methods=['POST'])
+@session_required
+def airfoil_preview():
+    """Return airfoil coordinates without constructing a Plotly figure."""
+    try:
+        data = request.get_json(silent=True) or {}
+        point_count = max(10, min(5000, safe_int(data.get('n', 100), 100)))
+        chord = safe_float(data.get('chord', 1.0), 1.0)
+        if chord <= 0:
+            raise ValueError('Chord must be greater than zero')
+        alpha_rad = np.radians(safe_float(data.get('alpha', 0.0), 0.0))
+
+        if data.get('type', 'naca') == 'custom':
+            x, z = _interpolate_custom_airfoil(data, point_count)
+        else:
+            naca = _validate_naca_code(data.get('naca', '0012'))
+            x, z_upper, z_lower, _, _, _ = naca_airfoil(
+                naca, chord, alpha_rad, point_count
+            )
+            x = np.concatenate((x[::-1], x[1:]))
+            z = np.concatenate((z_upper[::-1], z_lower[1:]))
+
+        return jsonify({
+            'status': 'success',
+            'type': data.get('type', 'naca'),
+            'geometry': serialize_airfoil(x, z),
+        })
+    except (TypeError, ValueError) as exc:
+        return jsonify({'status': 'error', 'message': 'Invalid airfoil preview parameters'}), 400
+    except Exception as exc:
+        logger.exception('Error generating airfoil preview')
+        return jsonify({'status': 'error', 'message': 'Unable to generate airfoil preview'}), 500
+
+
+@app.route('/api/airfoil/panel', methods=['POST'])
+@session_required
+def airfoil_panel_solution():
+    """2D panel-method solution (Hess-Smith sources or doublets) for a NACA 4-digit airfoil."""
+    try:
+        data = request.get_json(silent=True) or {}
+        result = solve_airfoil_panels(
+            _validate_naca_code(data.get('naca', '2412')),
+            safe_float(data.get('chord', 1.0), 1.0),
+            safe_float(data.get('alpha', 0.0), 0.0),
+            safe_float(data.get('u', 1.0), 1.0),
+            safe_int(data.get('n_panels', 100), 100),
+            str(data.get('method', 'source')),
+            bool(data.get('field', True)),
+        )
+        return jsonify({'status': 'success', **result})
+    except (TypeError, ValueError, np.linalg.LinAlgError) as exc:
+        return jsonify({'status': 'error', 'message': 'Invalid airfoil panel parameters'}), 400
+    except Exception as exc:
+        logger.exception('Error solving airfoil panel method')
+        return jsonify({'status': 'error', 'message': 'Unable to solve airfoil panel method'}), 500
+
+
+@app.route('/api/wing/preview', methods=['POST'])
+@session_required
+def wing_preview():
+    """Return panel geometry for the interactive frontend without solving VLM."""
+    try:
+        data = request.get_json(silent=True) or {}
+        plane = data.get('plane', data)
+        flight = data.get('flight_parameters', {})
+        if not isinstance(plane, dict) or not plane.get('wing_sections'):
+            raise ValueError('At least one wing section is required')
+        vlm = VLM(
+            plane,
+            safe_float(flight.get('u', 50.0), 50.0),
+            safe_float(flight.get('rho', 1.225), 1.225),
+            safe_float(flight.get('alpha', 0.0), 0.0),
+            safe_float(flight.get('beta', 0.0), 0.0),
+            max(1, safe_int(flight.get('n', 10), 10)),
+            max(1, safe_int(flight.get('m', 10), 10)),
+        )
+        vlm.calculate_geometry()
+        vlm.calculate_discretization()
+        return jsonify({
+            'status': 'success',
+            'geometry': serialize_panel_geometry(vlm.panel_data),
+            'wing_area': float(vlm.wing_area),
+        })
+    except (TypeError, ValueError) as exc:
+        return jsonify({'status': 'error', 'message': 'Invalid wing preview parameters'}), 400
+    except Exception as exc:
+        logger.exception('Error generating wing preview')
+        return jsonify({'status': 'error', 'message': 'Unable to generate wing preview'}), 500
 
 @app.route('/save_airfoil', methods=['POST'])
+@legacy_compatibility
 @session_required
 def save_airfoil():
     try:
@@ -528,8 +802,10 @@ def save_airfoil():
         naca = data.get('naca', '1310')
         chord = safe_float(data.get('chord', 1.0))
         alpha = safe_float(data.get('alpha', 0.0))
+        velocity = safe_float(data.get('u', default_naca.get('u', 50.0)))
+        points = safe_int(data.get('n', default_naca.get('n', 100)))
 
-        airfoil_data = {"naca": naca, "chord": chord, "alpha": alpha}
+        airfoil_data = {"naca": naca, "chord": chord, "alpha": alpha, "u": velocity, "n": points}
         json_path = SAVED_AIRFOILS / f"{naca}.json"
 
         with sessions_lock:
@@ -545,6 +821,7 @@ def save_airfoil():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/load_airfoil', methods=['POST'])
+@legacy_compatibility
 @session_required
 def load_airfoil():
     try:
@@ -570,7 +847,7 @@ def load_airfoil():
         if not (-90 <= airfoil_data['alpha'] <= 90):
             return jsonify({"status": "error", "message": "Angle of attack must be between -90 and 90"}), 400
         if not (-30 <= airfoil_data['chord'] <= 30):
-            return jsonify({"status": "error", "message": "Chord length must be between -30 and 30"}), 400
+            return jsonify({"status": "error", "message": "Chord length must be between 0.001 and 30"}), 400
 
         return jsonify({"status": "success", "airfoil": airfoil_data}), 200
     except Exception as e:
@@ -578,6 +855,7 @@ def load_airfoil():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/load_vlm_state', methods=['POST'])
+@legacy_compatibility
 @session_required
 def load_vlm_state():
     try:
@@ -588,8 +866,15 @@ def load_vlm_state():
         if file.filename == '':
             return jsonify({"status": "error", "message": "No file selected"}), 400
 
+        if not file.filename.endswith('.pkl'):
+            return jsonify({
+                "status": "error",
+                "message": "Legacy state upload only accepts .pkl; use the results API for JSON/NPZ results"
+            }), 400
+
         # Path to load the state file
-        path = SAVED_STATES / file.filename
+        safe_name = Path(file.filename).name
+        path = SAVED_STATES / safe_name
 
         with vlm_sessions_lock:
             if session_id not in vlm_sessions:
@@ -614,6 +899,247 @@ def load_vlm_state():
         logger.exception("Error in /load_vlm_state")
         return jsonify({"status": "error", "message": f"Failed to load state: {e}"}), 500
 
+@app.route('/api/results/save', methods=['POST'])
+@session_required
+def save_results_api():
+    try:
+        session_id = session.get('session_id')
+        request_data = request.get_json(silent=True) or {}
+        filename = str(request_data.get('filename', f'results_{session_id}')).strip()
+        filename = _validated_result_filename(filename)
+        if filename is None:
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        if not filename.endswith('.json'):
+            filename += '.json'
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
+        vlm.calculate_wing_lift()
+        manifest = vlm.save_results(str(_result_file_path(filename)))
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "configuration_checksum": manifest['configuration_checksum'],
+            "summary": manifest['summary']
+        })
+    except Exception as e:
+        logger.exception("Error saving VLM results")
+        return jsonify({"status": "error", "message": "Unable to save VLM results"}), 500
+
+@app.route('/api/results', methods=['GET'])
+@session_required
+def list_results_api():
+    try:
+        results = []
+        for manifest_path in SAVED_STATES.glob('*.json'):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+                if manifest.get('schema') != 'vlmpy.results':
+                    continue
+                results.append({
+                    'filename': manifest_path.name,
+                    'size': manifest_path.stat().st_size,
+                    'modified_at': datetime.fromtimestamp(manifest_path.stat().st_mtime).isoformat(),
+                    'summary': manifest.get('summary', {}),
+                    'configuration_checksum': manifest.get('configuration_checksum')
+                })
+            except (OSError, ValueError, json.JSONDecodeError):
+                logger.warning("Ignoring invalid result manifest: %s", manifest_path.name)
+        results.sort(key=lambda item: item['modified_at'], reverse=True)
+        return jsonify({'status': 'success', 'results': results})
+    except Exception as e:
+        logger.exception("Error listing VLM results")
+        return jsonify({'status': 'error', 'message': 'Unable to list VLM results'}), 500
+
+@app.route('/api/results/load', methods=['POST'])
+@session_required
+def load_results_api():
+    try:
+        session_id = session.get('session_id')
+        request_data = request.get_json(silent=True) or {}
+        filename = str(request_data.get('filename', '')).strip()
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
+        result_path = _result_file_path(filename)
+        manifest = json.loads(result_path.read_text(encoding='utf-8'))
+        vlm.apply_configuration(manifest['configuration'], include_flight=True)
+        vlm.calculate_discretization()
+        vlm.load_results(str(result_path))
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "configuration_checksum": manifest.get('configuration_checksum'),
+            "summary": manifest.get('summary', {})
+        })
+    except Exception as e:
+        logger.exception("Error loading VLM results")
+        return jsonify({"status": "error", "message": "Unable to load VLM results"}), 400
+
+
+@app.route('/api/results', methods=['DELETE'])
+@session_required
+def delete_results_api():
+    try:
+        data = request.get_json() or {}
+        filename = str(data.get('filename', '')).strip()
+        if not filename:
+            return jsonify({"status": "error", "message": "Filename required"}), 400
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
+        manifest_path = _result_file_path(filename)
+        if not manifest_path.exists():
+            return jsonify({"status": "error", "message": "Result not found"}), 404
+        try:
+            # Remove associated arrays file if present
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            arrays_file = manifest.get('arrays', {}).get('file')
+            if arrays_file:
+                arrays_filename = _validated_result_filename(arrays_file)
+                arrays_path = _result_file_path(arrays_filename) if arrays_filename else None
+                if arrays_path is not None and arrays_path.exists():
+                    arrays_path.unlink()
+            manifest_path.unlink()
+            return jsonify({"status": "success", "message": f"Deleted {filename}"})
+        except Exception as e:
+            logger.exception("Error deleting result files")
+            return jsonify({"status": "error", "message": "Unable to delete result files"}), 500
+    except Exception as e:
+        logger.exception("Error in delete_results_api")
+        return jsonify({"status": "error", "message": "Unable to delete VLM results"}), 500
+
+# STL generation endpoint
+@app.route('/generate_stl', methods=['GET', 'POST'])
+@session_required
+def generate_stl():
+    """
+    Generate an STL file with a complete NACA profile from a VLM session.
+
+    Optional parameters (GET/POST):
+    - naca_resolution: int (50-200) - NACA profile resolution (default: 80)
+    - format: str ('ascii'|'binary') - STL format (default: 'binary')
+    - filename: str - Output filename (default: 'wing_{session_id}.stl')
+    """
+    try:
+        session_id = session.get("session_id")
+
+        # Read parameters.
+        if request.method == 'POST' and request.is_json:
+            data = request.get_json(silent=True) or {}
+        else:
+            data = request.args.to_dict()
+
+        naca_resolution = safe_int(data.get('naca_resolution', 80), 80)
+        stl_format = data.get('format', 'binary')
+        filename = secure_filename(str(data.get('filename', f'wing_{session_id}.stl'))) or 'wing.stl'
+
+        # Validate parameters.
+        if not (30 <= naca_resolution <= 200):
+            return jsonify({
+                "status": "error", 
+                "message": "naca_resolution must be between 30 and 200"
+            }), 400
+
+        if stl_format not in ['ascii', 'binary']:
+            return jsonify({
+                "status": "error", 
+                "message": "format must be 'ascii' or 'binary'"
+            }), 400
+
+        # Prefer the plane currently defined in the form; fall back to the session VLM
+        plane = None
+        if request.method == 'POST' and request.form.getlist("chord_root[]"):
+            plane = _parse_wing_form(request.form)
+        else:
+            with vlm_sessions_lock:
+                vlm = vlm_sessions.get(session_id)
+            if vlm:
+                plane = vlm.export_configuration(include_flight=False)
+
+        if not plane or not plane.get("wing_sections"):
+            return jsonify({
+                "status": "error", 
+                "message": "No plane defined. Please design a wing first."
+            }), 400
+
+        # Check that the STL conversion function is available.
+        try:
+            from lib.wing_to_stl import wing_to_stl_with_naca_config
+        except ImportError:
+            return jsonify({
+                "status": "error",
+                "message": "STL generation module not found. Please ensure 'wing_to_stl' is available."
+            }), 500
+
+        # Generate the STL with a NACA profile.
+        logger.info(f"Generating STL for session {session_id} with NACA resolution {naca_resolution}")
+
+        # Create the temporary directory if it does not exist.
+        temp_dir = USER_DIR / "temp_stl"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = temp_dir / filename
+
+        # Run generation in the thread pool to avoid blocking.
+        def generate():
+            wing_mesh = wing_to_stl_with_naca_config(
+                plane,
+                output_filename=str(output_path),
+                naca_resolution=naca_resolution,
+                format=stl_format
+            )
+            return wing_mesh
+
+        future = thread_pool.submit(generate)
+        wing_mesh = future.result(timeout=60)  # 60-second timeout.
+
+        if wing_mesh is None or not output_path.exists():
+            return jsonify({
+                "status": "error",
+                "message": "Failed to generate STL file"
+            }), 500
+
+        # Send the file to the user.
+        logger.info(f"STL generated successfully: {output_path}")
+
+        return send_file(
+            str(output_path),
+            mimetype='model/stl',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except ValueError as e:
+        return jsonify({"status": "error", "message": "Invalid STL generation parameters"}), 400
+    except ImportError as e:
+        logger.exception("Import error in /generate_stl")
+        return jsonify({
+            "status": "error",
+            "message": "STL generation dependencies are unavailable"
+        }), 500
+    except TimeoutError:
+        logger.error("STL generation timeout")
+        return jsonify({
+            "status": "error",
+            "message": "STL generation timed out (>60s). Try reducing naca_resolution."
+        }), 500
+    except Exception as e:
+        logger.exception("Error in /generate_stl")
+        return jsonify({
+            "status": "error",
+            "message": "Unable to generate STL"
+        }), 500
+
+
 # Optimized plot dispatch endpoint
 @app.route('/plot/<plot_type>', methods=['GET', 'POST'])
 @session_required
@@ -636,6 +1162,21 @@ def plot_data(plot_type):
             return vlm_obj
 
         vlm = thread_pool.submit(ensure_vlm_ready, vlm).result()
+        data_key = json.dumps(data, sort_keys=True, default=str)
+        cache_key = json.dumps({
+            "session_id": session_id,
+            "plot_type": plot_type,
+            "data": data_key,
+            "geometry": getattr(vlm, '_geometry_cache_key', None),
+            "discretization": getattr(vlm, '_discretization_cache_key', None),
+            "solution": getattr(vlm, '_solution_state_key', None),
+            "theme": session.get('effective_mode', 'Light')
+        }, sort_keys=True, default=str)
+        with sessions_lock:
+            cached_plot = plot_cache.get(cache_key)
+        if cached_plot is not None:
+            return jsonify({"plot": cached_plot, "cached": True})
+
         fig = go.Figure()
 
         # Plot dispatch table for clarity and speed
@@ -664,6 +1205,12 @@ def plot_data(plot_type):
             'CL_CD': lambda: plot_CL_CD(fig, vlm, title='CL vs CD of the Wing'),
             'CL-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CL') if vlm.results and 'CL' in vlm.results else None,
             'CD-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CD') if vlm.results and 'CD' in vlm.results else None,
+            'CX-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CX') if vlm.results and 'CX' in vlm.results else None,
+            'CY-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CY') if vlm.results and 'CY' in vlm.results else None,
+            'CZ-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='CZ') if vlm.results and 'CZ' in vlm.results else None,
+            'Cl-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cl') if vlm.results and 'Cl' in vlm.results else None,
+            'Cm-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cm') if vlm.results and 'Cm' in vlm.results else None,
+            'Cn-alpha': lambda: plot_coefficient_vs_alpha(fig, vlm, coefficient='Cn') if vlm.results and 'Cn' in vlm.results else None,
             'CL-CD-alpha': lambda: plot_CLCD_vs_alpha(fig, vlm, title=None) if vlm.results and 'CL' in vlm.results and 'CD' in vlm.results else None,
             'LiftSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='lift'),
             'DragSection': lambda: plot_distribution(vlm, safe_int(data.get('n_section', None)), quantity='drag')
@@ -671,23 +1218,31 @@ def plot_data(plot_type):
 
         plot_func = plot_map.get(plot_type)
         if not plot_func:
-            return jsonify({"status": "error", "message": "Tipo de gráfico inválido"}), 400
+            return jsonify({"status": "error", "message": "Invalid plot type"}), 400
 
         fig_result = plot_func()
         if fig_result is None:
             # Specific error for missing coefficients
-            if plot_type in ('CL-alpha', 'CD-alpha', 'CL-CD-alpha'):
+            if plot_type in (
+                'CL-alpha', 'CD-alpha', 'CX-alpha', 'CY-alpha', 'CZ-alpha',
+                'Cl-alpha', 'Cm-alpha', 'Cn-alpha', 'CL-CD-alpha'
+            ):
                 return jsonify({"status": "error", "message": "Please calculate coefficients first"}), 400
             return jsonify({"status": "error", "message": "Plot data unavailable"}), 400
 
         fig = apply_plotly_theme(fig_result)
         plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-        return jsonify({"plot": plot_json})
+        plot_payload = json.loads(plot_json)
+        with sessions_lock:
+            if len(plot_cache) >= PLOT_CACHE_MAX_ENTRIES:
+                plot_cache.pop(next(iter(plot_cache)))
+            plot_cache[cache_key] = plot_payload
+        return jsonify({"plot": plot_payload, "cached": False})
     except Exception as e:
-        logger.exception(f"Error en /plot/{plot_type}")
+        logger.exception(f"Error in /plot/{plot_type}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Config management API (se mantienen las funciones del manager)
+# Config management API (manager functions are retained).
 @app.route('/api/configs', methods=['GET'])
 @session_required
 def list_configs():
@@ -706,22 +1261,19 @@ def save_plane_config():
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if not vlm:
-            return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
+            return jsonify({"status": "error", "message": "No active VLM session"}), 400
 
         data = request.get_json() or {}
         filename = data.get('filename', f'plane_{session_id}')
 
-        config = getattr(vlm, 'plane', {}).copy()
-        if data.get('include_flight_params', False):
-            config['flight_parameters'] = {
-                'u': getattr(vlm, 'u', None),
-                'rho': getattr(vlm, 'rho', None),
-                'alpha': getattr(vlm, 'alpha', None),
-                'beta': getattr(vlm, 'beta', None),
-                'n': getattr(vm, 'n', None) if False else getattr(vlm, 'n', None),  # fallback safe access
-                'm': getattr(vlm, 'm', None)
-            }
-        config['name'] = data.get('name', f'Configuración {session_id}')
+        # The session VLM contains the structured sections and stabilizers.
+        # FormData is intentionally not used here because repeated fields
+        # would be flattened and could silently lose wing sections.
+        config = vlm.export_configuration(include_flight=False)
+        # Plane configurations are reproducible only when flight and mesh
+        # parameters travel with the geometry.
+        config['flight_parameters'] = vlm.export_configuration(include_flight=True)['flight_parameters']
+        config['name'] = data.get('name', f'Configuration {session_id}')
         config['description'] = data.get('description', '')
 
         result = config_manager.save_config(config, filename)
@@ -739,7 +1291,7 @@ def load_plane_config():
         data = request.get_json() or {}
         filename = data.get('filename')
         if not filename:
-            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+            return jsonify({"status": "error", "message": "Filename is required"}), 400
 
         result = config_manager.load_config(filename)
         if result.get('status') != 'success':
@@ -747,21 +1299,28 @@ def load_plane_config():
 
         config = result.get('config', {})
         session_id = session.get('session_id')
+        if 'flightparameters' in config and 'flight_parameters' not in config:
+            config['flight_parameters'] = config.pop('flightparameters')
+
+        flight = config.get('flight_parameters', {})
+        plane_config = {key: value for key, value in config.items() if key != 'flight_parameters'}
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
-            if not vlm:
-                return jsonify({"status": "error", "message": "No hay una sesión VLM activa"}), 400
-            vlm.plane = config
-
-            # Cargar parámetros de vuelo si están incluidos
-            if 'flightparameters' in config and data.get('loadflightparams', False):
-                fp = config['flightparameters']
-                vlm.u = fp.get('u', vlm.u)
-                vlm.rho = fp.get('rho', vlm.rho)
-                vlm.alpha = fp.get('alpha', vlm.alpha)
-                vlm.beta = fp.get('beta', vlm.beta)
-                vlm.n = fp.get('n', vlm.n)
-                vlm.m = fp.get('m', vlm.m)
+            if vlm is None:
+                vlm = VLM(
+                    plane_config,
+                    safe_float(flight.get('u', default_parameters.get('u', 50.0)), 50.0),
+                    safe_float(flight.get('rho', default_parameters.get('rho', 1.225)), 1.225),
+                    safe_float(flight.get('alpha', 0.0)),
+                    safe_float(flight.get('beta', 0.0)),
+                    safe_int(flight.get('n', 10), 10),
+                    safe_int(flight.get('m', 10), 10),
+                )
+                vlm_sessions[session_id] = vlm
+            vlm.apply_configuration(
+                config,
+                include_flight=data.get('loadflightparams', True)
+            )
 
         return jsonify(status="success", message=result.get('message'), config=config, checksum_valid=result.get('checksum_valid'), version=result.get('version'))
     except Exception as e:
@@ -775,7 +1334,7 @@ def delete_config():
         data = request.get_json() or {}
         filename = data.get('filename')
         if not filename:
-            return jsonify({"status": "error", "message": "Nombre de archivo requerido"}), 400
+            return jsonify({"status": "error", "message": "Filename is required"}), 400
         result = config_manager.delete_config(filename)
         if result.get('status') == 'success':
             return jsonify(result)
@@ -784,26 +1343,55 @@ def delete_config():
         logger.exception("Error in delete_config")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/apply_plane_config', methods=['POST'])
+@session_required
+def apply_plane_config():
+    try:
+        config = request.get_json() or {}
+        if not isinstance(config, dict):
+            return jsonify({'status': 'error', 'message': 'Configuration must be an object'}), 400
+        if 'metadata' in config:
+            config = {key: value for key, value in config.items() if key != 'metadata'}
+        if 'flightparameters' in config and 'flight_parameters' not in config:
+            config['flight_parameters'] = config.pop('flightparameters')
+        session_id = session.get('session_id')
+        with vlm_sessions_lock:
+            vlm = vlm_sessions.get(session_id)
+        if vlm is None:
+            return jsonify({'status': 'error', 'message': 'No active VLM session'}), 400
+        vlm.apply_configuration(config, include_flight=True)
+        config_out = vlm.export_configuration(include_flight=True)
+        config_out['angle_unit'] = 'rad'
+        return jsonify({
+            'status': 'success',
+            'message': 'Plane configuration applied; previous results cleared',
+            'config': config_out
+        })
+    except Exception as e:
+        logger.exception('Error applying plane configuration')
+        return jsonify({'status': 'error', 'message': 'Invalid plane configuration'}), 400
+
 @app.route('/api/validate_config', methods=['POST'])
 def validate_config():
     try:
         config = request.get_json()
         if not config:
-            return jsonify({"status": "error", "message": "No se proporcionó configuración"}), 400
+            return jsonify({"status": "error", "message": "No configuration provided"}), 400
         config_type = "wing" if "wingsections" in config else "parameters"
         errors = config_manager.validate_config(config, config_type)
         if errors:
-            return jsonify({"status": "error", "message": "Configuración inválida", "validation_errors": errors, "is_valid": False})
-        return jsonify({"status": "success", "message": "Configuración válida", "is_valid": True, "checksum": config_manager.calculate_checksum(config)})
+            return jsonify({"status": "error", "message": "Invalid configuration", "validation_errors": errors, "is_valid": False})
+        return jsonify({"status": "success", "message": "Configuration is valid", "is_valid": True, "checksum": config_manager.calculate_checksum(config)})
     except Exception as e:
         logger.exception("Error in validate_config")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/airfoil-configs', methods=['GET'])
+@session_required
 def list_airfoil_configs():
-    """Lista todas las configuraciones de airfoil guardadas"""
+    """List all saved airfoil configurations."""
     try:
-        # Busca archivos que empiecen con 'airfoil_' o terminen con '_airfoil.json'
+        # Find files that start with 'airfoil_' or end with '_airfoil.json'.
         configs = config_manager.list_configs("*airfoil*.json")
         
         return jsonify({
@@ -819,8 +1407,9 @@ def list_airfoil_configs():
         }), 500
 
 @app.route('/api/saveairfoilconfig', methods=['POST'])
+@session_required
 def save_airfoil_config():
-    """Guarda una configuración de airfoil"""
+    """Save an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -832,7 +1421,7 @@ def save_airfoil_config():
                 "message": "Filename is required"
             }), 400
             
-        # Validación básica de datos de airfoil
+        # Perform basic airfoil data validation.
         required_fields = ['naca', 'u', 'alpha', 'chord', 'n']
         missing_fields = [field for field in required_fields if field not in airfoil_data]
         
@@ -842,11 +1431,11 @@ def save_airfoil_config():
                 "message": f"Missing required fields: {', '.join(missing_fields)}"
             }), 400
         
-        # Prefija el nombre del archivo para identificarlo como configuración de airfoil
+        # Prefix the filename to identify it as an airfoil configuration.
         if not filename.startswith('airfoil_'):
             filename = f"airfoil_{filename}"
         
-        # Estructura de datos para airfoil
+        # Build the airfoil configuration data.
         config_data = {
             "type": "airfoil",
             "naca": airfoil_data['naca'],
@@ -870,7 +1459,8 @@ def save_airfoil_config():
                 "status": "success",
                 "message": f"Airfoil configuration '{filename}' saved successfully!",
                 "filename": result['filename'],
-                "backup_created": result.get('backup_created', False)
+                "backup_created": result.get('backup_created', False),
+                "replaced_existing": result.get('replaced_existing', False)
             }), 200
         else:
             return jsonify(result), 500
@@ -882,8 +1472,9 @@ def save_airfoil_config():
         }), 500
 
 @app.route('/api/loadairfoilconfig', methods=['POST'])
+@session_required
 def load_airfoil_config():
-    """Carga una configuración de airfoil"""
+    """Load an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -899,14 +1490,14 @@ def load_airfoil_config():
         if result['status'] == 'success':
             config = result['config']
             
-            # Valida que sea una configuración de airfoil
+            # Verify that this is an airfoil configuration.
             if config.get('type') != 'airfoil':
                 return jsonify({
                     "status": "error",
                     "message": "Selected file is not an airfoil configuration"
                 }), 400
             
-            # Extrae los datos del airfoil para el frontend
+            # Extract the airfoil data for the frontend.
             airfoil_data = {
                 "naca": config.get('naca', '0012'),
                 "u": config.get('u', 10.0),
@@ -935,7 +1526,7 @@ def load_airfoil_config():
 
 @app.route('/api/deleteairfoilconfig', methods=['POST'])
 def delete_airfoil_config():
-    """Elimina una configuración de airfoil"""
+    """Delete an airfoil configuration."""
     try:
         data = request.get_json()
         filename = data.get('filename', '').strip()
@@ -965,14 +1556,14 @@ def delete_airfoil_config():
 
 @app.route('/api/validateairfoilconfig', methods=['POST'])
 def validate_airfoil_config():
-    """Valida una configuración de airfoil"""
+    """Validate an airfoil configuration."""
     try:
         data = request.get_json()
         airfoil_data = data.get('data', {})
         
         errors = []
         
-        # Validaciones específicas para airfoil
+        # Apply airfoil-specific validation rules.
         validations = {
             'naca': {
                 'required': True,
@@ -1051,9 +1642,18 @@ def validate_airfoil_config():
         }), 500
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     optimize_resources()
     try:
-        app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
-        #ui.run()
+        # Own AppUserModelID so Windows shows VLMPy's icon in the taskbar instead of python's.
+        if os.name == "nt":
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VLMPy.App")
+        ui = WebUI(app, port=5001, debug=False, app_name="VLMPy",
+                   icon_path=str(BASE_DIR / "static" / "images" / "icon.ico"))
+        ui.run()
+        #logger.info("Starting VLMPy Flask server at http://localhost:5001 (pid=%s)", os.getpid())
+        #app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
     finally:
         thread_pool.shutdown(wait=True)                                                                                                                                                                 
