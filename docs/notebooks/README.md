@@ -4,6 +4,8 @@ Jupyter notebooks that exercise the public `VLM` API (`src/vlm/lib/vlm.py`,
 `src/vlm/lib/geometry.py`) to explain how VLMPy works. They use the actual library;
 independent reference calculations are identified separately from the solver.
 
+**Coordinate change:** These notebooks and their saved outputs predate the change to body axes (x forward, y right, z down). Their axis descriptions, hard-coded positions, derived formulas, and numerical outputs have not yet been updated or revalidated; do not use them as evidence for the current implementation without reviewing and rerunning them.
+
 ## Prerequisites
 
 - Python 3.8+ with `numpy`, `plotly`, and `numpy-stl` installed (`src/vlm/lib/geometry.py`

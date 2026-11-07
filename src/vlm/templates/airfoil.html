@@ -224,7 +224,8 @@ function nacaPreviewCoordinates(code, chord, angleDegrees, count) {
         camberSurface.push([xValue * Math.cos(alpha) - camberLine * chord * Math.sin(alpha),
             camberLine * chord * Math.cos(alpha) - xValue * Math.sin(alpha)]);
     }
-    return {upper, lower, camber: camberSurface};
+    const bodyCoordinates = surface => surface.map(([x, z]) => [-x, -z]);
+    return {upper: bodyCoordinates(upper), lower: bodyCoordinates(lower), camber: bodyCoordinates(camberSurface)};
 }
 
 window.renderAirfoilEditor = function renderAirfoilEditor() {
@@ -238,7 +239,7 @@ window.renderAirfoilEditor = function renderAirfoilEditor() {
         if (svg) svg.innerHTML = '<text class="airfoil-error" x="500" y="210" text-anchor="middle">Enter a valid 4-digit NACA code</text>';
         return;
     }
-    const toPoints = surface => surface.map(([x, z]) => `${(x / chord) * 1000},${210 - z * 900}`).join(' ');
+    const toPoints = surface => surface.map(([x, z]) => `${(-x / chord) * 1000},${210 + z * 900}`).join(' ');
     svg.innerHTML = `
         <line class="airfoil-axis" x1="0" y1="210" x2="1000" y2="210" />
         <polyline class="airfoil-surface airfoil-upper" points="${toPoints(coordinates.upper)}" />
@@ -475,21 +476,21 @@ function renderPanelResults(r) {
         const t = (x - xs[i - 1]) / ((xs[i] - xs[i - 1]) || 1);
         return ys[i - 1] + t * (ys[i] - ys[i - 1]);
     };
-    const xu = pick(g.x_mid, d.upper), cu = pick(d.cp, d.upper);
-    const xl = pick(g.x_mid, d.lower).reverse(), cl = pick(d.cp, d.lower).reverse();
+    const xu = pick(g.x_mid, d.upper).reverse(), cu = pick(d.cp, d.upper).reverse();
+    const xl = pick(g.x_mid, d.lower), cl = pick(d.cp, d.lower);
     const x0 = Math.max(xu[0], xl[0]), x1 = Math.min(xu[xu.length - 1], xl[xl.length - 1]);
     const chordLen = Math.max(...g.x) - Math.min(...g.x);
-    const xs = Array.from({length: 120}, (_, i) => x0 + (x1 - x0) * 0.5 * (1 - Math.cos(Math.PI * i / 119)));
+    const xs = Array.from({length: 120}, (_, i) => x0 + (x1 - x0) * 0.5 * (1 - Math.cos(Math.PI * i / 119))).reverse();
     const loading = xs.map(x => interp(xl, cl, x) - interp(xu, cu, x));
     const cumulative = [0];
-    for (let i = 1; i < xs.length; i++) cumulative.push(cumulative[i - 1] + 0.5 * (loading[i] + loading[i - 1]) * (xs[i] - xs[i - 1]) / chordLen);
+    for (let i = 1; i < xs.length; i++) cumulative.push(cumulative[i - 1] + 0.5 * (loading[i] + loading[i - 1]) * (xs[i - 1] - xs[i]) / chordLen);
     Plotly.react('panel-plot-cl', [
         {x: xs, y: loading, mode: 'lines', name: '\u0394C<sub>p</sub>(x) = C<sub>p,low</sub> \u2212 C<sub>p,up</sub>', line: {color: '#2ca02c', width: 2},
             fill: 'tozeroy', fillcolor: 'rgba(44,160,44,0.15)', hovertemplate: 'x=%{x:.3f}<br>\u0394Cp=%{y:.3f}<extra></extra>'},
         {x: xs, y: cumulative, yaxis: 'y2', mode: 'lines', name: 'Cumulative C<sub>L</sub>(x) (\u222b\u0394C<sub>p</sub>dx/c)',
             line: {color: '#ff7f0e', width: 2, dash: 'dash'}, hovertemplate: 'x=%{x:.3f}<br>CL(x)=%{y:.4f}<extra></extra>'},
     ], themedLayout({title: 'Chordwise lift loading',
-        xaxis: {title: 'x (m)'}, yaxis: {title: '\u0394C<sub>p</sub>'},
+        xaxis: {title: 'x (m)', autorange: 'reversed'}, yaxis: {title: '\u0394C<sub>p</sub>'},
         yaxis2: {title: 'Cumulative C<sub>L</sub>', overlaying: 'y', side: 'right', showgrid: false},
         margin: {l: 55, r: 55, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
 
@@ -502,8 +503,8 @@ function renderPanelResults(r) {
     const cpProfile = {x: g.x, y: g.z, yaxis: 'y2', mode: 'lines', name: 'Airfoil', fill: 'toself',
         line: {color: '#555', width: 1.5}, fillcolor: 'rgba(120,120,120,0.3)', hoverinfo: 'skip'};
     Plotly.react('panel-plot-cp', [cpUpper, cpLower, cpProfile], themedLayout({title: 'Pressure coefficient',
-        xaxis: {title: 'x (m)'}, yaxis: {title: 'C<sub>p</sub>', autorange: 'reversed'},
-        yaxis2: {overlaying: 'y', visible: false, range: [zMin - 0.2 * band, zMax + 3.2 * band]},
+        xaxis: {title: 'x (m)', autorange: 'reversed'}, yaxis: {title: 'C<sub>p</sub>', autorange: 'reversed'},
+        yaxis2: {overlaying: 'y', visible: false, range: [zMax + 0.2 * band, zMin - 3.2 * band]},
         margin: {l: 55, r: 15, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
 
     const scale = 0.05 * (Math.max(...g.x) - Math.min(...g.x));
@@ -515,7 +516,7 @@ function renderPanelResults(r) {
         {x: g.x_mid, y: g.z_mid, mode: 'markers', name: 'Control points', marker: {size: 4, color: '#000'},
             customdata: g.length.map((len, i) => [i, len]), hovertemplate: 'panel %{customdata[0]}<br>L=%{customdata[1]:.4f}<extra></extra>'},
         {x: g.x, y: g.z, mode: 'markers', name: 'Nodes', marker: {size: 3, color: '#2ca02c'}, hoverinfo: 'skip'},
-    ], themedLayout({title: 'Panel geometry and normals', xaxis: {title: 'x (m)', ...equal}, yaxis: {title: 'z (m)'},
+    ], themedLayout({title: 'Panel geometry and normals', xaxis: {title: 'x (m)', autorange: 'reversed', ...equal}, yaxis: {title: 'z (m)', autorange: 'reversed'},
         margin: {l: 55, r: 15, t: 40, b: 45}, legend: {orientation: 'h', y: -0.2}}), cfg);
 
     const fieldDiv = document.getElementById('panel-plot-field');
@@ -555,12 +556,12 @@ function renderPanelResults(r) {
 
         const bx0 = Math.min(...g.x), bx1 = Math.max(...g.x), chordLen = bx1 - bx0;
         const zMid = 0.5 * (Math.min(...g.z) + Math.max(...g.z));
-        const zoom = {'xaxis.range': [bx0 - 0.15 * chordLen, bx1 + 0.4 * chordLen],
-            'yaxis.range': [zMid - 0.3 * chordLen, zMid + 0.3 * chordLen]};
-        const full = {'xaxis.range': [r.field.x[0], r.field.x[r.field.x.length - 1]],
-            'yaxis.range': [r.field.z[0], r.field.z[r.field.z.length - 1]]};
+        const zoom = {'xaxis.range': [bx1 + 0.4 * chordLen, bx0 - 0.15 * chordLen],
+            'yaxis.range': [zMid + 0.3 * chordLen, zMid - 0.3 * chordLen]};
+        const full = {'xaxis.range': [r.field.x[r.field.x.length - 1], r.field.x[0]],
+            'yaxis.range': [r.field.z[r.field.z.length - 1], r.field.z[0]]};
         const quiet = {showgrid: false, zeroline: false, showline: false, ticks: ''};
-        Plotly.react(fieldDiv, traces, themedLayout({title: 'Streamlines colored by speed |V|/U\u221e',
+        Plotly.react(fieldDiv, traces, themedLayout({title: 'Streamlines',
             xaxis: {title: 'x (m)', range: zoom['xaxis.range'], ...quiet, ...equal},
             yaxis: {title: 'z (m)', range: zoom['yaxis.range'], ...quiet},
             margin: {l: 55, r: 15, t: 40, b: 45}}), cfg);

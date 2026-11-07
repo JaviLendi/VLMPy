@@ -185,8 +185,16 @@ document.addEventListener('DOMContentLoaded', () => {
             plotData.layout.autosize = true;
             plotData.layout.paper_bgcolor = 'rgba(0,0,0,0)';
             plotData.layout.plot_bgcolor = 'rgba(0,0,0,0)';
+            const narrowPlot = DOM.plotArea.clientWidth < 500;
+            if (narrowPlot) plotData.layout.margin = {...plotData.layout.margin, t: 80};
             if (plotData.layout.scene) {
                 plotData.layout.scene.bgcolor = 'rgba(0,0,0,0)';
+                const eye = plotData.layout.scene.camera?.eye;
+                if (eye && narrowPlot) {
+                    eye.x *= 1.75;
+                    eye.y *= 1.75;
+                    eye.z *= 1.75;
+                }
             }
             const plotIsMounted = DOM.plotArea.classList.contains('js-plotly-plot')
                 && DOM.plotArea._fullLayout;

@@ -4,26 +4,28 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """
-STL export of the complete plane (wing, horizontal and vertical stabilizers).
+STL export of the plane (wing, stabilizers, and optional fuselage geometry).
 
 Conventions (identical to lib.geometry.calculate_geometry):
-- x streamwise (aft), y spanwise (right), z up; lengths in m, angles in rad.
+- Aircraft body axes: x forward, y right, z down; lengths in m, angles in rad.
 - Wing and horizontal stabilizer are symmetric: each section's `span_fraction`
   is the TOTAL span of that section (half per side). The vertical stabilizer
-  is a single (non-mirrored) surface whose span runs along +z.
+    is a single (non-mirrored) surface whose span runs along -z.
 - A section's root chord/station is the previous section's tip (as in the VLM);
   `twist` is incremental per section and accumulates from the root, rotating
   the profile about its quarter chord (positive = leading edge up).
 - `alpha` of a stabilizer is a rigid rotation about the y axis through the
   surface root before translation, as done by the VLM geometry. The flight
   angle of attack is NOT applied: the STL is the body geometry.
-- Each surface is exported as a closed solid; solids are not boolean-merged.
+- Wing and stabilizers are closed solids; imported fuselage mesh quality is
+    preserved. Components are not boolean-merged.
 - Flap/aileron deflections are not represented.
 """
 
 import numpy as np
 from stl import mesh, Mode
 
+from lib.fuselage import Fuselage
 from lib.naca import naca_airfoil
 
 _REQUIRED_KEYS = ('span_fraction', 'chord_root', 'chord_tip', 'sweep', 'NACA_root', 'NACA_tip')
@@ -92,6 +94,7 @@ def _mirror(station):
 def _profile(naca, chord, twist, resolution):
     """Closed airfoil ring in (x, z): lower TE -> LE -> upper TE (TE gap closes by wrap)."""
     x, z_upper, z_lower, *_ = naca_airfoil(naca, chord, 0.0, resolution)
+    x, z_upper, z_lower = -x, -z_upper, -z_lower
     xs = np.concatenate([x[::-1], x[1:]])
     zs = np.concatenate([z_lower[::-1], z_upper[1:]])
     if np.hypot(xs[0] - xs[-1], zs[0] - zs[-1]) < 1e-9 * chord:
@@ -146,12 +149,13 @@ def _surface_triangles(sections, symmetric, label, alpha=0.0, translate=(0.0, 0.
     rotation = _rot_y(float(alpha))
     x_axis = rotation @ np.array([1.0, 0.0, 0.0])
     up_vec = rotation @ np.asarray(up, dtype=float)
-    shift = np.array([float(translate[0]), 0.0, float(translate[1])])
-    return np.concatenate([_loft_solid(l, x_axis, up_vec, rotation, shift, resolution) for l in lofts])
+    shift = np.array([-float(translate[0]), 0.0, -float(translate[1])])
+    triangles = np.concatenate([_loft_solid(l, x_axis, up_vec, rotation, shift, resolution) for l in lofts])
+    return triangles * np.array([-1.0, 1.0, -1.0])
 
 
 def build_plane_mesh(plane, naca_resolution=80):
-    """Build a numpy-stl mesh of the wing and, if defined, both stabilizers."""
+    """Build a numpy-stl mesh of the wing and optional aircraft components."""
     if not isinstance(plane, dict):
         raise ValueError("plane must be a dict")
     wing = plane.get('wing_sections')
@@ -174,6 +178,10 @@ def build_plane_mesh(plane, naca_resolution=80):
             translate=(vs.get('x_translate', 0.0), vs.get('z_translate', 0.0)),
             up=(0.0, 1.0, 0.0), default_dihedral=np.pi / 2, resolution=naca_resolution))
 
+    if 'fuselage' in plane:
+        vertices, faces = Fuselage(plane['fuselage']).mesh()
+        parts.append(vertices[faces])
+
     tris = np.concatenate(parts)
     data = np.zeros(len(tris), dtype=mesh.Mesh.dtype)
     data['vectors'] = tris
@@ -191,7 +199,7 @@ def _save(plane_mesh, output_filename, format):
 
 def wing_to_stl_with_naca_config(plane_config, output_filename='wing_with_profile.stl',
                                  naca_resolution=100, format='binary'):
-    """Export a plane dict (wing + optional stabilizers) to STL and return the mesh."""
+    """Export a plane dict to STL and return the mesh."""
     plane_mesh = build_plane_mesh(plane_config, naca_resolution)
     _save(plane_mesh, output_filename, format)
     return plane_mesh

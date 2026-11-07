@@ -390,7 +390,35 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 .wing-preview-solid { stroke: transparent; }
 .wing-preview-detail { stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .wing-preview-detail-aileron, .wing-preview-outline-aileron { fill: color-mix(in srgb, var(--landing-orange) 32%, transparent); stroke: var(--landing-orange); }
+.wing-preview-control { fill: color-mix(in srgb, var(--landing-orange) 42%, transparent); stroke: var(--landing-orange); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .wing-preview-detail-stabilizer, .wing-preview-outline-stabilizer { fill: color-mix(in srgb, #55a9a0 28%, transparent); stroke: #55a9a0; }
+.wing-preview-fuselage { fill: color-mix(in srgb, #dbad64 38%, transparent); stroke: #ad7a35; stroke-width: 0.5; vector-effect: non-scaling-stroke; }
+.wing-legend-fuselage { background: #dbad64; }
+#fuselage-stations-group { display: grid; gap: 10px; }
+.fuselage-stations-heading, .fuselage-station-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fuselage-stations-heading h4 { margin: 0; font-size: 13px; }
+.fuselage-stations-heading span { color: var(--muted-color); font-size: 11px; }
+.fuselage-stations { display: grid; gap: 10px; }
+.fuselage-station { border-top: 1px solid var(--surface-border); padding-top: 8px; min-width: 0; }
+.fuselage-station-name { font-size: 12px; font-weight: 700; }
+.fuselage-station-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fuselage-station-fields label { display: grid; gap: 5px; }
+.fuselage-station-actions { display: flex; align-items: center; }
+.fuselage-remove-station, .fuselage-insert-station { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: var(--muted-color); cursor: pointer; }
+.fuselage-remove-station:disabled, .fuselage-insert-station:disabled { opacity: 0.4; cursor: not-allowed; }
+.fuselage-remove-station .material-icons, .fuselage-insert-station .material-icons, .fuselage-add-station .material-icons { font-size: 18px; }
+.fuselage-add-station { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.tail-control-toggle { display: flex; align-items: center; gap: 8px; }
+.tail-control-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.tail-control-fields[hidden] { display: none; }
+.tail-control-fields label { display: grid; gap: 4px; min-width: 0; }
+#fuselage-placement { display: grid; gap: 8px; }
+.fuselage-placement-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.fuselage-placement-group legend { padding: 0; color: var(--muted-color); font-size: 11px; font-weight: 600; }
+.fuselage-placement-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fuselage-placement-fields label { display: grid; gap: 4px; min-width: 0; }
+#fuselage-section output { display: block; overflow-wrap: anywhere; }
+#fuselage-section [hidden] { display: none; }
 .wing-preview-details.wing-preview-detail-hidden { display: none; }
 .wing-preview-outline { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .wing-preview-outline-wing { stroke: var(--accent-color); }
@@ -420,6 +448,7 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 #plot-area .modebar-btn svg path { fill: var(--plotly-modebar-icon) !important; stroke: var(--plotly-modebar-icon) !important; }
 #plot-area .modebar-btn:hover, #plot-area .modebar-btn.active { background: transparent !important; color: var(--plotly-modebar-hover) !important; }
 #plot-area .modebar-btn:hover svg path, #plot-area .modebar-btn.active svg path { fill: var(--plotly-modebar-hover) !important; stroke: var(--plotly-modebar-hover) !important; }
+@media (max-width: 500px) { #plot-area .modebar { top: 48px !important; } }
 .results-header { align-items: center; }
 .results-back-link { flex: 0 0 auto; }
 .results-overview, .results-tool-section { margin-top: 18px; }

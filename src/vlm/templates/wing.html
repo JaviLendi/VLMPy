@@ -177,13 +177,21 @@
                         {"label": "Span Fraction:", "id": "horizontal-stabilizer-span-fraction", "name": "span_fraction", "type": "number", "value": default_plane.horizontal_stabilizer.span_fraction, "step": "any"},
                         {"label": "Sweep (degrees):", "id": "horizontal-stabilizer-sweep", "name": "sweep", "type": "number", "value": default_plane.horizontal_stabilizer.sweep, "step": "any"},
                         {"label": "Dihedral (degrees):", "id": "horizontal-stabilizer-dihedral", "name": "htp_dihedral", "type": "number", "value": default_plane.horizontal_stabilizer.dihedral, "step": "any"},
-                        {"label": "Alpha (degrees):", "id": "horizontal-stabilizer-alpha", "name": "htp_alpha", "type": "number", "value": default_plane.horizontal_stabilizer.alpha, "step": "any"}
+                        {"label": "Alpha (degrees):", "id": "horizontal-stabilizer-alpha", "name": "htp_alpha", "type": "number", "value": default_plane.horizontal_stabilizer.alpha, "step": "any"},
+                        {"label": "Tip Twist (degrees):", "id": "horizontal-stabilizer-twist", "name": "htp_twist", "type": "number", "value": 0, "step": "any"}
                     ] %}
                     <div class="input-group">
                         <label for="{{ field.id }}">{{ field.label }}</label>
                         <input type="{{ field.type }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.step %}step="{{ field.step }}"{% endif %}>
                     </div>
                     {% endfor %}
+                    <label class="tail-control-toggle"><input type="checkbox" id="horizontal-stabilizer-control-enabled" name="htp_control_enabled" value="1"> Elevator</label>
+                    <fieldset class="tail-control-fields" id="horizontal-stabilizer-control-fields" disabled hidden>
+                        {% for suffix, label, value in [('start', 'Span start', 0), ('end', 'Span end', 1), ('hinge', 'Hinge chord', 0.75), ('angle', 'Deflection (degrees)', 0)] %}
+                        {% set names = {'start': 'flap_start', 'end': 'flap_end', 'hinge': 'flap_hinge_chord', 'angle': 'deflection_angle'} %}
+                        <label for="horizontal-stabilizer-control-{{ suffix }}">{{ label }}<input type="number" id="horizontal-stabilizer-control-{{ suffix }}" name="htp_{{ names[suffix] }}" value="{{ value }}" step="any" {% if suffix != 'angle' %}min="0" max="1"{% endif %} required></label>
+                        {% endfor %}
+                    </fieldset>
                 </div>
             </section>
 
@@ -225,14 +233,66 @@
                         {"label": "Chord Tip (m):", "id": "vertical-stabilizer-chord-tip", "name": "chord_tip_v", "type": "number", "value": default_plane.vertical_stabilizer.chord_tip, "step": "any"},
                         {"label": "Span Fraction:", "id": "vertical-stabilizer-span-fraction", "name": "span_fraction_v", "type": "number", "value": default_plane.vertical_stabilizer.span_fraction, "step": "any"},
                         {"label": "Sweep (degrees):", "id": "vertical-stabilizer-sweep", "name": "sweep_v", "type": "number", "value": default_plane.vertical_stabilizer.sweep, "step": "any"},
-                        {"label": "Alpha (degrees):", "id": "vertical-stabilizer-alpha", "name": "alpha_v", "type": "number", "value": default_plane.vertical_stabilizer.alpha, "step": "any"}
+                        {"label": "Alpha (degrees):", "id": "vertical-stabilizer-alpha", "name": "alpha_v", "type": "number", "value": default_plane.vertical_stabilizer.alpha, "step": "any"},
+                        {"label": "Tip Twist (degrees):", "id": "vertical-stabilizer-twist", "name": "vtp_twist", "type": "number", "value": 0, "step": "any"}
                     ] %}
                     <div class="input-group">
                         <label for="{{ field.id }}">{{ field.label }}</label>
                         <input type="{{ field.type }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ field.value }}" {% if field.step %}step="{{ field.step }}"{% endif %}>
                     </div>
                     {% endfor %}
+                    <label class="tail-control-toggle"><input type="checkbox" id="vertical-stabilizer-control-enabled" name="vtp_control_enabled" value="1"> Rudder</label>
+                    <fieldset class="tail-control-fields" id="vertical-stabilizer-control-fields" disabled hidden>
+                        {% for suffix, label, value in [('start', 'Span start', 0), ('end', 'Span end', 1), ('hinge', 'Hinge chord', 0.75), ('angle', 'Deflection (degrees)', 0)] %}
+                        {% set names = {'start': 'flap_start', 'end': 'flap_end', 'hinge': 'flap_hinge_chord', 'angle': 'deflection_angle'} %}
+                        <label for="vertical-stabilizer-control-{{ suffix }}">{{ label }}<input type="number" id="vertical-stabilizer-control-{{ suffix }}" name="vtp_{{ names[suffix] }}" value="{{ value }}" step="any" {% if suffix != 'angle' %}min="0" max="1"{% endif %} required></label>
+                        {% endfor %}
+                    </fieldset>
                 </div>
+            </section>
+
+            <section class="form-group wing-card" id="fuselage-section">
+                <div class="section-heading"><div><span class="results-eyebrow">Body</span><h3>Fuselage Geometry</h3></div></div>
+                <div class="input-group">
+                    <label for="fuselage-mode">Fuselage</label>
+                    <select id="fuselage-mode">
+                        <option value="none">None</option>
+                        <option value="stations">Define stations</option>
+                        <option value="stl" disabled>Import STL (temporarily unavailable)</option>
+                    </select>
+                </div>
+                <input type="hidden" name="fuselage" id="fuselage-config">
+                <div id="fuselage-stations-group" hidden>
+                    <div class="fuselage-stations-heading"><h4>Stations</h4><span>Dimensions in metres</span></div>
+                    <div id="fuselage-stations" class="fuselage-stations" aria-label="Fuselage stations"></div>
+                    <button class="action-button fuselage-add-station" id="fuselage-add-station" type="button"><span class="material-icons" aria-hidden="true">add</span> Add station</button>
+                </div>
+                <div id="fuselage-import-group" hidden>
+                    <div class="input-group"><label for="fuselage-units">STL units</label>
+                        <select id="fuselage-units"><option value="">Select units</option><option value="m">m</option><option value="mm">mm</option><option value="ft">ft</option></select>
+                    </div>
+                    <div class="input-group"><label for="fuselage-file">STL file</label><input id="fuselage-file" type="file" accept=".stl"></div>
+                    <div class="input-group"><label for="fuselage-source-tool">Source tool and version</label><input id="fuselage-source-tool" type="text" maxlength="500"></div>
+                    <div class="input-group"><label for="fuselage-source-frame">Source coordinate system</label><input id="fuselage-source-frame" type="text" maxlength="500"></div>
+                    <div class="input-group"><label for="fuselage-export-settings">Export and tessellation settings</label><input id="fuselage-export-settings" type="text" maxlength="500"></div>
+                    <button class="action-button" id="fuselage-import" type="button" disabled>Import STL</button>
+                    <output id="fuselage-report" aria-live="polite"></output>
+                    <div class="input-group"><label for="fuselage-component">Fuselage component</label><select id="fuselage-component"><option value="">All components</option></select></div>
+                </div>
+                <div id="fuselage-placement" hidden>
+                    <div class="input-group" id="fuselage-scale-group" hidden><label for="fuselage-scale">STL scale factor</label><input type="number" id="fuselage-scale" value="1" min="0" step="any"></div>
+                    {% for kind, title in [('translate', 'Position (m)'), ('rotate', 'Rotation (degrees)')] %}
+                    <fieldset class="fuselage-placement-group">
+                        <legend>{{ title }}</legend>
+                        <div class="fuselage-placement-fields">
+                            {% for axis in ['x', 'y', 'z'] %}
+                            <label for="fuselage-{{ kind }}-{{ axis }}">{{ axis|upper }}<input type="number" id="fuselage-{{ kind }}-{{ axis }}" value="0" step="any"></label>
+                            {% endfor %}
+                        </div>
+                    </fieldset>
+                    {% endfor %}
+                </div>
+                <output id="fuselage-status" aria-live="polite"></output>
             </section>
 
             <!-- Discretization -->
@@ -304,6 +364,7 @@
             <span><i class="wing-legend-swatch wing-legend-wing"></i>Wing</span>
             <span><i class="wing-legend-swatch wing-legend-aileron"></i>Ailerons</span>
             <span><i class="wing-legend-swatch wing-legend-tail"></i>Stabilizers</span>
+            <span><i class="wing-legend-swatch wing-legend-fuselage"></i>Fuselage</span>
             <span><i class="wing-legend-swatch wing-legend-wind"></i>Freestream</span>
         </div>
     </div>
@@ -405,16 +466,35 @@ function wingPreviewGeometry() {
         const flapStart = wingPreviewNumber(section.querySelector('[name="flap_start[]"]')?.value, 0.2);
         const flapEnd = wingPreviewNumber(section.querySelector('[name="flap_end[]"]')?.value, 0.8);
         const flapHinge = wingPreviewNumber(section.querySelector('[name="flap_hinge_chord[]"]')?.value, 0.25);
+        const flapAngle = wingPreviewNumber(section.querySelector('[name="deflection_angle[]"]')?.value) * Math.PI / 180;
+        const flapType = section.querySelector('[name="deflection_type[]"]')?.value || 'symmetrical';
         const nextSpan = span + Math.cos(dihedral) * (spanFraction / 2);
         const nextHeight = height - Math.sin(dihedral) * (spanFraction / 2);
-        const nextLead = lead + Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
-        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot, twist: rootTwist}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip, twist: tipTwist}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
+        const nextLead = lead - Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
+        right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot, twist: rootTwist}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip, twist: tipTwist}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge, angle: flapAngle, type: flapType}});
         span = nextSpan;
         lead = nextLead;
         height = nextHeight;
         cumulativeTwist = tipTwist;
     });
     return right;
+}
+
+function wingControlPoint(point, section, spanFraction, twist, side, sections) {
+    const [x, y, initialZ] = point;
+    const signedY = side * y;
+    const halfSpan = sections[sections.length - 1].tip.y;
+    const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
+    const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
+    const quarterChord = xLead - chord * 0.25;
+    let z = initialZ;
+    sections.forEach(({flap}) => {
+        const hinge = quarterChord - Math.cos(twist) * (flap.hinge - 0.25) * chord;
+        if (!flap.enabled || Math.abs(signedY) < flap.start * halfSpan || Math.abs(signedY) > flap.end * halfSpan || x >= hinge) return;
+        if (flap.type === 'symmetrical') z -= flap.angle * (x - hinge);
+        if (flap.type === 'antisymmetrical') z -= (signedY >= 0 ? 1 : -1) * flap.angle * (x - hinge);
+    });
+    return [x, signedY, z];
 }
 
 function renderWingPreview() {
@@ -429,6 +509,7 @@ function renderWingPreview() {
     const shapes = [];
     const detailShapes = [];
     const outlineShapes = [];
+    const controlShapes = [];
     const spanPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-span')?.value, 10)));
     const chordPanels = Math.max(1, Math.round(wingPreviewNumber(document.getElementById('panels-chord')?.value, 6)));
     const previewPanelCount = spanPanels * chordPanels;
@@ -460,22 +541,22 @@ function renderWingPreview() {
                         const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
                         const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
                         const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
-                        const x = xLead + chord * chordFraction;
+                        const x = xLead - chord * chordFraction;
                         // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
                         const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
                         if (!twist) return [x, y, zBase];
-                        const qx = xLead + chord * 0.25;
+                        const qx = xLead - chord * 0.25;
                         const qz = zBase; // pivot about quarter-chord at local reference height
                         const ct = Math.cos(twist), st = Math.sin(twist);
-                        const xr = qx + ct * (x - qx) - st * (zBase - qz);
-                        const zr = qz + st * (x - qx) + ct * (zBase - qz);
+                        const xr = qx + ct * (x - qx) + st * (zBase - qz);
+                        const zr = qz - st * (x - qx) + ct * (zBase - qz);
                         return [xr, y, zr];
                     };
-                    // compute panel mid-span twist (radians) so the whole panel uses same twist
-                    const midFraction = (f0 + f1) / 2;
-                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
-                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
-                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                    const fractions = [f0, f0, f1, f1];
+                    const twists = fractions.map(fraction => (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * fraction);
+                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    shapes.push(points.map((point, index) => wingControlPoint(point, section, fractions[index], twists[index], 1, sections)),
+                        points.map((point, index) => wingControlPoint(point, section, fractions[index], twists[index], -1, sections)));
                 }
             }
             return;
@@ -503,42 +584,53 @@ function renderWingPreview() {
                             chordFraction,
                             upper
                         );
-                        const x = xLead + chord * chordFraction;
+                        const x = xLead - chord * chordFraction;
                         const z = zBase - chord * profileHeight;
                         // determine geometric twist: either provided explicitly (radians) or interpolated by fraction
                         const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
                         if (!twist) return [x, y, z];
-                        const qx = xLead + chord * 0.25;
+                        const qx = xLead - chord * 0.25;
                         const qz = zBase; // pivot at quarter-chord reference height
                         const ct = Math.cos(twist), st = Math.sin(twist);
-                        const xr = qx + ct * (x - qx) - st * (z - qz);
-                        const zr = qz + st * (x - qx) + ct * (z - qz);
+                        const xr = qx + ct * (x - qx) + st * (z - qz);
+                        const zr = qz - st * (x - qx) + ct * (z - qz);
                         return [xr, y, zr];
                     };
-                    // compute panel mid-span twist (radians) so the whole panel uses same twist
-                    const midFraction = (f0 + f1) / 2;
-                    const midTwist = (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * midFraction;
-                    const points = [atSpan(f0, c0, midTwist), atSpan(f0, c1, midTwist), atSpan(f1, c1, midTwist), atSpan(f1, c0, midTwist)];
-                    shapes.push(points, points.map(([x, y, z]) => [x, -y, z]));
+                    const fractions = [f0, f0, f1, f1];
+                    const twists = fractions.map(fraction => (section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * fraction);
+                    const points = [atSpan(f0, c0), atSpan(f0, c1), atSpan(f1, c1), atSpan(f1, c0)];
+                    shapes.push(points.map((point, index) => wingControlPoint(point, section, fractions[index], twists[index], 1, sections)),
+                        points.map((point, index) => wingControlPoint(point, section, fractions[index], twists[index], -1, sections)));
                 }
             });
         }
     });
+    const transformTail = (x, y, z, tail) => {
+        const cosine = Math.cos(tail.alpha), sine = Math.sin(tail.alpha);
+        const deltaX = x - tail.x, deltaZ = z - tail.z;
+        return [tail.x + cosine * deltaX + sine * deltaZ, y,
+                tail.z - sine * deltaX + cosine * deltaZ];
+    };
     const detailPoint = (section, spanFraction, chordFraction, upper = true, twistAngle = null) => {
         const xLead = section.root.x + (section.tip.x - section.root.x) * spanFraction;
         const y = section.root.y + (section.tip.y - section.root.y) * spanFraction;
         const zBase = section.root.z + (section.tip.z - section.root.z) * spanFraction;
         const chord = section.root.c + (section.tip.c - section.root.c) * spanFraction;
         const height = wingInterpolatedNacaHeight(section.root.naca, section.tip.naca, spanFraction, chordFraction, upper);
-        const x = xLead + chord * chordFraction;
+        const x = xLead - chord * chordFraction;
         const z = zBase - chord * height;
         const twist = twistAngle != null ? twistAngle : ((section.root.twist ?? 0) + ((section.tip.twist ?? 0) - (section.root.twist ?? 0)) * spanFraction);
-        if (!twist) return [x, y, z];
-        const qx = xLead + chord * 0.25;
+        const qx = xLead - chord * 0.25;
         const qz = zBase;
         const ct = Math.cos(twist), st = Math.sin(twist);
-        const xr = qx + ct * (x - qx) - st * (z - qz);
-        const zr = qz + st * (x - qx) + ct * (z - qz);
+        let xr = qx + ct * (x - qx) + st * (z - qz);
+        let zr = qz - st * (x - qx) + ct * (z - qz);
+        if (section.tail) [xr, , zr] = transformTail(xr, y, zr, section.tail);
+        const control = section.control;
+        if (control?.enabled && spanFraction >= control.start && spanFraction <= control.end && chordFraction > control.hinge) {
+            const hingeX = section.tail ? transformTail(xLead - chord * control.hinge, y, zBase, section.tail)[0] : xLead - chord * control.hinge;
+            zr -= control.angle * (xr - hingeX);
+        }
         return [xr, y, zr];
     };
     const addAirfoilOutline = (section, spanFraction, type) => {
@@ -562,17 +654,27 @@ function renderWingPreview() {
         ];
         outlineShapes.push({type: 'wing', points: boundary}, {type: 'wing', points: boundary.map(([x, y, z]) => [x, -y, z])});
     });
-    sections.forEach(section => {
-        if (!section.flap.enabled) return;
-        const start = Math.max(0, Math.min(1, section.flap.start));
-        const end = Math.max(start, Math.min(1, section.flap.end));
-        const hinge = Math.max(0, Math.min(1, section.flap.hinge));
-        const flapPanel = [
-            detailPoint(section, start, hinge), detailPoint(section, start, 1),
-            detailPoint(section, end, 1), detailPoint(section, end, hinge)
-        ];
-        detailShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
-        outlineShapes.push({type: 'aileron', points: flapPanel}, {type: 'aileron', points: flapPanel.map(([x, y, z]) => [x, -y, z])});
+    const halfWingSpan = sections[sections.length - 1].tip.y;
+    sections.forEach(({flap}) => {
+        if (!flap.enabled) return;
+        sections.forEach(section => {
+            const span = section.tip.y - section.root.y;
+            if (span <= 0) return;
+            const startY = Math.max(section.root.y, flap.start * halfWingSpan);
+            const endY = Math.min(section.tip.y, flap.end * halfWingSpan);
+            if (endY <= startY) return;
+            const start = (startY - section.root.y) / span;
+            const end = (endY - section.root.y) / span;
+            const hinge = Math.max(0, Math.min(1, flap.hinge));
+            const locations = [[start, hinge], [start, 1], [end, 1], [end, hinge]];
+            [1, -1].forEach(side => {
+                const points = locations.map(([fraction, chord]) => {
+                    const twist = section.root.twist + (section.tip.twist - section.root.twist) * fraction;
+                    return wingControlPoint(detailPoint(section, fraction, chord), section, fraction, twist, side, sections);
+                });
+                controlShapes.push({type: 'aileron', points});
+            });
+        });
     });
     const readStabilizer = prefix => {
         const section = document.getElementById(`${prefix}-stabilizer-section`);
@@ -584,16 +686,20 @@ function renderWingPreview() {
             tip: document.getElementById(`${prefix}-stabilizer-naca-tip`)?.value || '0012',
             chordRoot: value('chord-root'), chordTip: value('chord-tip'),
             span: Math.max(0, value('span-fraction')), sweep: value('sweep'),
-            dihedral: value('dihedral')
+            dihedral: value('dihedral'), twist: value('twist') * Math.PI / 180, alpha: value('alpha') * Math.PI / 180,
+            control: {enabled: document.getElementById(`${prefix}-stabilizer-control-enabled`)?.checked,
+                start: value('control-start'), end: value('control-end'), hinge: value('control-hinge'),
+                angle: value('control-angle') * Math.PI / 180}
         };
     };
     const addStabilizer = (data, type) => {
         if (!data) return;
         const sweep = Math.tan(data.sweep * Math.PI / 180);
         const halfSpan = data.span / 2;
-        const tip = {x: data.x + sweep * halfSpan, y: halfSpan, z: data.z - Math.sin(data.dihedral * Math.PI / 180) * halfSpan, c: data.chordTip, naca: data.tip};
-        const root = {x: data.x, y: 0, z: data.z, c: data.chordRoot, naca: data.root};
-        const surface = {root, tip};
+        const spanProjection = Math.cos(data.dihedral * Math.PI / 180) * halfSpan;
+        const tip = {x: data.x - sweep * spanProjection, y: spanProjection, z: data.z - Math.sin(data.dihedral * Math.PI / 180) * halfSpan, c: data.chordTip, naca: data.tip, twist: data.twist};
+        const root = {x: data.x, y: 0, z: data.z, c: data.chordRoot, naca: data.root, twist: 0};
+        const surface = {root, tip, control: data.control, tail: data};
         addAirfoilOutline(surface, 0, type);
         addAirfoilOutline(surface, 1, type);
         const planformBoundary = [
@@ -601,6 +707,13 @@ function renderWingPreview() {
             detailPoint(surface, 1, 1, true), detailPoint(surface, 0, 1, true)
         ];
         outlineShapes.push({type, points: planformBoundary}, {type, points: planformBoundary.map(([x, y, z]) => [x, -y, z])});
+        if (data.control.enabled && data.control.end > data.control.start) {
+            const {start, end, hinge} = data.control;
+            const control = [detailPoint(surface, start, hinge), detailPoint(surface, start, 1),
+                             detailPoint(surface, end, 1), detailPoint(surface, end, hinge)];
+            controlShapes.push({type: 'elevator', points: control},
+                {type: 'elevator', points: control.map(([x, y, z]) => [x, -y, z])});
+        }
         const spanCount = Math.max(2, Math.min(12, Math.round(spanPanels / 2)));
         const chordCount = Math.max(2, Math.min(8, chordPanels));
         for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
@@ -628,13 +741,28 @@ function renderWingPreview() {
         const sweep = Math.tan(data.sweep * Math.PI / 180);
         const cAt = fraction => data.chordRoot + (data.chordTip - data.chordRoot) * fraction;
         const xAt = (spanFraction, chordFraction) => {
-            const xLead = data.x + sweep * span * spanFraction;
-            return xLead + cAt(spanFraction) * chordFraction;
+            const xLead = data.x - sweep * span * spanFraction;
+            return xLead - cAt(spanFraction) * chordFraction;
         };
         const verticalPoint = (spanFraction, chordFraction, upper) => {
             const zBase = data.z - span * spanFraction;
-            const thickness = cAt(spanFraction) * wingNacaHeight(data.root, chordFraction, upper);
-            return [xAt(spanFraction, chordFraction), thickness, zBase];
+            const thickness = cAt(spanFraction) * wingInterpolatedNacaHeight(data.root, data.tip, spanFraction, chordFraction, upper);
+            const pivotX = xAt(spanFraction, 0.25);
+            const angle = data.twist * spanFraction;
+            const cosine = Math.cos(angle), sine = Math.sin(angle);
+            const deltaX = xAt(spanFraction, chordFraction) - pivotX;
+            let x = pivotX + cosine * deltaX - sine * thickness;
+            let y = sine * deltaX + cosine * thickness;
+            const control = data.control;
+            if (control.enabled && spanFraction >= control.start && spanFraction <= control.end && chordFraction > control.hinge) {
+                const hingeDelta = xAt(spanFraction, control.hinge) - pivotX;
+                const hingeX = pivotX + cosine * hingeDelta;
+                const hingeY = sine * hingeDelta;
+                const controlDeltaX = x - hingeX, controlDeltaY = y - hingeY;
+                x += control.angle * controlDeltaY;
+                y -= control.angle * controlDeltaX;
+            }
+            return transformTail(x, y, zBase, data);
         };
         const addVerticalProfileOutline = spanFraction => {
             const profile = [];
@@ -652,11 +780,16 @@ function renderWingPreview() {
         addVerticalProfileOutline(0);
         addVerticalProfileOutline(1);
         outlineShapes.push({type: 'stabilizer', points: [
-            [xAt(0, 0), 0, data.z],
-            [xAt(1, 0), 0, data.z - span],
-            [xAt(1, 1), 0, data.z - span],
-            [xAt(0, 1), 0, data.z]
+            verticalPoint(0, 0, true), verticalPoint(1, 0, true),
+            verticalPoint(1, 1, true), verticalPoint(0, 1, true)
         ]});
+        if (data.control.enabled && data.control.end > data.control.start) {
+            const {start, end, hinge} = data.control;
+            controlShapes.push({type: 'rudder', points: [
+                verticalPoint(start, hinge, true), verticalPoint(start, 1, true),
+                verticalPoint(end, 1, true), verticalPoint(end, hinge, true)
+            ]});
+        }
         for (let spanIndex = 0; spanIndex < spanCount; spanIndex++) {
             const s0 = spanIndex / spanCount;
             const s1 = (spanIndex + 1) / spanCount;
@@ -675,17 +808,26 @@ function renderWingPreview() {
     };
     addStabilizer(readStabilizer('horizontal'), 'stabilizer');
     addVerticalStabilizer(readStabilizer('vertical'));
-    const all = shapes.flat();
+    const body = window.fuselagePreview;
+    const fuselageShapes = [];
+    if (body?.vertices && body?.faces) {
+        const stride = Math.max(1, Math.ceil(body.faces.length / 2500));
+        for (let index = 0; index < body.faces.length; index += stride) {
+            fuselageShapes.push(body.faces[index].map(vertex => body.vertices[vertex]));
+        }
+    }
+    const all = shapes.flat().concat(fuselageShapes.flat());
     const xs = all.map(point => point[0]);
     const ys = all.map(point => point[1]);
     const zs = all.map(point => point[2]);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
     const minZ = Math.min(...zs), maxZ = Math.max(...zs);
-    const project = ([x, y, z]) => {
+    const project = ([bodyX, y, bodyZ]) => {
+        const x = -bodyX, z = -bodyZ;
         if (!is3d) {
-            if (window.wingProjection === 'front') return [y, -z];
-            if (window.wingProjection === 'side') return [x, -z];
+            if (window.wingProjection === 'front') return [y, z];
+            if (window.wingProjection === 'side') return [x, z];
             return [y, -x];
         }
         const camera = window.wingCamera;
@@ -693,19 +835,21 @@ function renderWingPreview() {
         const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
         const rotatedX = x * cy - y * sy;
         const rotatedDepth = x * sy + y * cy;
-        const rotatedY = -z * cp - rotatedDepth * sp;
+        const rotatedY = z * cp - rotatedDepth * sp;
         const depth = rotatedDepth * cp + z * sp;
         return [-rotatedX, rotatedY];
     };
     const projected = shapes.map(shape => shape.map(project));
     const projectedDetails = detailShapes.map(detail => ({type: detail.type, points: detail.points.map(project)}));
+    const projectedControls = controlShapes.map(control => ({type: control.type, points: control.points.map(project)}));
+    const projectedFuselage = fuselageShapes.map(shape => shape.map(project));
     const projectedOutlines = outlineShapes.map(outline => ({type: outline.type, points: outline.points.map(project)}));
     const alpha = wingPreviewNumber(document.getElementById('angle-of-attack')?.value) * Math.PI / 180;
     const beta = wingPreviewNumber(document.getElementById('side-slip-angle')?.value) * Math.PI / 180;
     const windDirection = [
-        Math.cos(alpha) * Math.cos(beta),
-        Math.sin(beta),
-        Math.sin(alpha)
+        -Math.cos(alpha) * Math.cos(beta),
+        -Math.sin(beta),
+        -Math.sin(alpha) * Math.cos(beta)
     ];
     const geometryLength = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
     const wingOrigin = [0, 0, 0];
@@ -733,7 +877,7 @@ function renderWingPreview() {
         : [];
     const projectedPoints = projected.flat().concat(
         projectedDetails.flatMap(detail => detail.points),
-        projectedOutlines.flatMap(outline => outline.points),
+        projectedOutlines.flatMap(outline => outline.points), projectedControls.flatMap(control => control.points), projectedFuselage.flat(),
         referencePoints
     );
     const projectedXs = projectedPoints.map(point => point[0]);
@@ -762,6 +906,9 @@ function renderWingPreview() {
         const path = `M ${points.map(point => point.join(' ')).join(' L ')} Z`;
         return `<path class="wing-preview-detail wing-preview-detail-${detail.type}" d="${path}" />`;
     }).join('');
+    const fuselagePath = projectedFuselage.map(shape => `M ${shape.map(mapPoint).map(point => point.join(' ')).join(' L ')} Z`).join(' ');
+    const controlPaths = projectedControls.map(control =>
+        `<path class="wing-preview-control wing-preview-control-${control.type}" d="M ${control.points.map(mapPoint).map(point => point.join(' ')).join(' L ')} Z" />`).join('');
     const outlinePaths = projectedOutlines.map(outline => {
         const points = outline.points.map(mapPoint);
         return `<path class="wing-preview-outline wing-preview-outline-${outline.type}" d="M ${points.map(point => point.join(' ')).join(' L ')} Z" />`;
@@ -794,7 +941,9 @@ function renderWingPreview() {
         </defs>
         ${originMarker}
         ${paths}
+        <path class="wing-preview-fuselage" d="${fuselagePath}" />
         <g class="wing-preview-details${detailVisibility}">${detailPaths}</g>
+        <g class="wing-preview-controls-surfaces">${controlPaths}</g>
         <g class="wing-preview-outlines">${outlinePaths}</g>
         ${windVector}
         ${windOriginReference}
@@ -1058,6 +1207,8 @@ window.populateFormWithConfig = async function populateFormWithConfig(config) {
                 toggleSection('vertical-stabilizer-section', '[aria-controls="vertical-stabilizer-section"]');
         }
 
+        populateTailControl('horizontal', hsData || {});
+        populateTailControl('vertical', vsData || {});
         window.dispatchEvent(new CustomEvent('vlmpy:configuration-loaded', {detail: config}));
         return true;
     } catch (error) {
@@ -1141,7 +1292,8 @@ function populateHorizontalStabilizerDataWithAngles(hsData) {
         ['span-fraction', 'span_fraction', false],
         ['sweep', 'sweep', true],
         ['alpha', 'alpha', true],
-        ['dihedral', 'dihedral', true]
+        ['dihedral', 'dihedral', true],
+        ['twist', 'twist', true]
     ]);
 }
 
@@ -1156,8 +1308,28 @@ function populateVerticalStabilizerDataWithAngles(vsData) {
         ['span-fraction', 'span_fraction', false],
         ['sweep', 'sweep', true],
         ['alpha', 'alpha', true],
-        ['dihedral', 'dihedral', true]
+        ['dihedral', 'dihedral', true],
+        ['twist', 'twist', true]
     ]);
+}
+
+function setTailControl(prefix, enabled) {
+    const checkbox = document.getElementById(`${prefix}-stabilizer-control-enabled`);
+    const fields = document.getElementById(`${prefix}-stabilizer-control-fields`);
+    checkbox.checked = enabled;
+    fields.hidden = !enabled;
+    fields.disabled = !enabled;
+}
+
+function populateTailControl(prefix, data) {
+    const twist = document.getElementById(`${prefix}-stabilizer-twist`);
+    twist.value = data.twist == null ? 0 : convertAngleIfNeeded(data.twist, true);
+    [['start', 'flap_start', 0], ['end', 'flap_end', 1], ['hinge', 'flap_hinge_chord', 0.75], ['angle', 'deflection_angle', 0]].forEach(([suffix, key, fallback]) => {
+        let value = data[key] ?? fallback;
+        if (suffix === 'angle' && data[key] != null) value = convertAngleIfNeeded(value, true);
+        document.getElementById(`${prefix}-stabilizer-control-${suffix}`).value = value;
+    });
+    setTailControl(prefix, data.flap_start != null);
 }
 
 // Optimize Enter key event to trigger Calculate and Planform only if focused in form
@@ -1173,6 +1345,12 @@ document.getElementById('wing-form').addEventListener('keydown', function(event)
 
 // DOM initialization and default plane population
 document.addEventListener('DOMContentLoaded', () => {
+    ['horizontal', 'vertical'].forEach(prefix => {
+        document.getElementById(`${prefix}-stabilizer-control-enabled`).addEventListener('change', event => {
+            setTailControl(prefix, event.target.checked);
+            renderWingPreview();
+        });
+    });
     if (window.defaultPlane) {
         populateFormWithConfig(window.defaultPlane);
     }
@@ -1275,4 +1453,5 @@ function generate_stl() {
 }
 
 </script>
+<script defer src="{{ url_for('static', filename='js/fuselage.js') }}"></script>
 {% endblock %}

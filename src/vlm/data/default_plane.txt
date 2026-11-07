@@ -16,7 +16,7 @@
         }
     ],
     "horizontal_stabilizer": {
-        "x_translate": 2,
+        "x_translate": -2,
         "z_translate":0,
         "NACA_root": "3215",
         "NACA_tip": "3215",
@@ -28,7 +28,7 @@
         "alpha": 0.0
     },
     "vertical_stabilizer": {
-        "x_translate": 2,
+        "x_translate": -2,
         "z_translate":0,
         "NACA_root": "3215",
         "NACA_tip": "3215",

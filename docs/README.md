@@ -157,7 +157,7 @@ For advanced examples (swept or tapered wings and control surfaces), see the use
 
 - **Flow assumptions:** Inviscid and incompressible flow (not suitable for transonic or supersonic conditions, or viscous effects).
 - **Geometry:** Optimized for thin wings; does not model thick wings or fuselages.
-- **Axes and references:** For the newer coefficients, $x$ points toward the trailing edge, $y$ toward the positive semi-span, and $z$ upward; moments follow the right-hand rule. They are normalized using wing planform area, span, and mean chord. The moment reference point is the area-weighted mean quarter-chord, not the center of gravity. The legacy $C_L/C_D$ retains its previous normalization by total panel area; with stabilizers, it should not be compared directly with $C_Z/C_X$.
+- **Axes and references:** Body axes have $x$ forward, $y$ right, and $z$ down; moments follow the right-hand rule. They are normalized using wing planform area, span, and mean chord. The moment reference point is the area-weighted mean quarter-chord, not the center of gravity. The legacy $C_L/C_D$ retains its previous normalization by total panel area; with stabilizers, it should not be compared directly with $C_Z/C_X$.
 - **Derivatives:** Static and expressed per radian; they do not include dynamic derivatives with respect to angular rates and do not constitute a complete stability analysis.
 - **Drag:** $C_D$ is induced drag in the current model. Profile or parasite drag, separation, and stall are not calculated.
 - **Resources:** A large number of panels increases computation time.

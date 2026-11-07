@@ -200,7 +200,7 @@ class VLM:
             summary['static_derivatives'] = self.static_derivatives
         manifest = {
             'schema': 'vlmpy.results',
-            'schema_version': 1,
+            'schema_version': 2,
             'configuration': configuration,
             'configuration_checksum': self.configuration_checksum(configuration),
             'summary': summary,
@@ -216,8 +216,8 @@ class VLM:
         """Load validated solver arrays from a JSON manifest and NPZ payload."""
         manifest_path = Path(filename)
         manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-        if manifest.get('schema') != 'vlmpy.results' or manifest.get('schema_version') != 1:
-            raise ValueError('Unsupported results file schema')
+        if manifest.get('schema') != 'vlmpy.results' or manifest.get('schema_version') != 2:
+            raise ValueError('Unsupported results file schema or coordinate convention; recalculate legacy results')
         configuration = manifest.get('configuration')
         if not isinstance(configuration, dict):
             raise ValueError('Results manifest has no configuration')
@@ -365,7 +365,8 @@ class VLM:
             wing_panel_density_chord = self.m / self.plane['wing_sections'][0]['chord_root'] + 1
 
             if 'horizontal_stabilizer' in self.plane:
-                self.n_hs = max(1, int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction'])))
+                self.n_hs = max(2, int(np.round(wing_panel_density * self.plane['horizontal_stabilizer']['span_fraction'])))
+                self.n_hs += self.n_hs % 2
                 self.m_hs = max(1, int(np.round(wing_panel_density_chord * self.plane['horizontal_stabilizer']['chord_root'])))
             else:
                 self.n_hs, self.m_hs = 0, 0
@@ -549,6 +550,18 @@ class VLM:
                     plane_plus, alpha, beta,
                     plane_minus, alpha, beta,
                 )
+            for name in ('horizontal_stabilizer', 'vertical_stabilizer'):
+                section = plane.get(name)
+                if not isinstance(section, dict) or 'deflection_angle' not in section:
+                    continue
+                plane_plus = copy.deepcopy(plane)
+                plane_minus = copy.deepcopy(plane)
+                plane_plus[name]['deflection_angle'] = float(section['deflection_angle']) + step
+                plane_minus[name]['deflection_angle'] = float(section['deflection_angle']) - step
+                control_derivatives[name] = derivative(
+                    plane_plus, alpha, beta,
+                    plane_minus, alpha, beta,
+                )
         finally:
             self.plane = plane
             self.alpha = alpha
@@ -619,7 +632,7 @@ def _calculate_aerodynamic_coefficients(vlm):
     induced_velocity = vlm.P_ij_resis @ vlm.gammas
     panel_lengths = np.linalg.norm(bound_segments, axis=1)
     induced_drag = -vlm.rho * induced_velocity * vlm.gammas * panel_lengths
-    panel_forces = lift_forces - induced_drag[:, None] * freestream[None, :] / speed
+    panel_forces = lift_forces + induced_drag[:, None] * freestream[None, :] / speed
     force = panel_forces.sum(axis=0)
     panel_positions = np.asarray([
         (np.asarray(panel[2][0], dtype=float) + np.asarray(panel[2][1], dtype=float)) / 2
@@ -758,8 +771,8 @@ def calculate_P_ij(panel_data, u, dz_c, alpha, beta):
     factor_b = np.zeros_like(r2_norm)
     valid_a = r1_norm > 1e-6
     valid_b = r2_norm > 1e-6
-    factor_a[valid_a] = (1 + r1_x[valid_a] / r1_norm[valid_a]) / (4 * np.pi)
-    factor_b[valid_b] = (1 + r2_x[valid_b] / r2_norm[valid_b]) / (4 * np.pi)
+    factor_a[valid_a] = -(1 - r1_x[valid_a] / r1_norm[valid_a]) / (4 * np.pi)
+    factor_b[valid_b] = -(1 - r2_x[valid_b] / r2_norm[valid_b]) / (4 * np.pi)
 
     v_a_inf = np.zeros_like(v_ab)
     valid_a_j = valid_a & (r1_z ** 2 > 1e-6)
@@ -855,15 +868,9 @@ def calculate_w_i(panel_data, u, dz_c, alpha, beta):
         normal_vector_[i] /= norm
         normal_vector = normal_vector_[i]
 
-        Talpha = np.array([
-            [np.cos(alpha), 0, -np.sin(alpha)],
-            [0, 1, 0],
-            [np.sin(alpha), 0, np.cos(alpha)]])
-        Tbeta = np.array([
-            [np.cos(beta), -np.sin(beta), 0],
-            [np.sin(beta), np.cos(beta), 0],
-            [0, 0, 1]])
-        u_ = np.dot(Tbeta, np.dot(Talpha, np.array([0, 1, 0]))) * u
+        u_ = -u * np.array([
+            np.sin(beta), np.cos(alpha) * np.cos(beta),
+            np.sin(alpha) * np.cos(beta)])
         w_i[i] = -np.dot(np.array([u_[1], u_[0], u_[2]]), normal_vector)
 
     return w_i, normal_vector_, panel_length, u_
@@ -1121,11 +1128,11 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
         colorscale=colorscale,
         cmin=vmin,
         cmax=vmax,
-        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
+        colorbar=dict(title=dict(text=legend, side='top'), thickness=20),
         opacity=opacity,
         flatshading=False,
         name='Wing Heatmap',
-        hovertemplate='Value: %{intensity:.4f}<br>X: %{x}<br>Y: %{y}<br>Z: %{z}'
+        hovertemplate='Value: %{intensity:.4f}<br>Y: %{x}<br>X: %{y}<br>Z: %{z}'
     )
 
     traces = [mesh]
@@ -1155,22 +1162,25 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
     x_range = [np.min(all_vertices[:, 0]), np.max(all_vertices[:, 0])]
     y_range = [np.min(all_vertices[:, 1]), np.max(all_vertices[:, 1])]
     z_range = [np.min(all_vertices[:, 2]), np.max(all_vertices[:, 2])]
+    dimensions = np.ptp(all_vertices, axis=0)
+    aspect = np.maximum(dimensions / max(np.max(dimensions), 1e-12), 1e-6)
 
     # Define layout
     layout = go.Layout(
-        title=dict(text=title, x=0.5, xanchor='center'),
+        title=dict(text=title, x=0.02, xanchor='left'),
         scene=dict(
-            xaxis=dict(title='y [m]', range=x_range),
-            yaxis=dict(title='x [m]', range=y_range),
-            zaxis=dict(title='z [m]', range=z_range),
-            aspectmode='data',  # Equal aspect ratio
+            xaxis=dict(title='y [m]', range=x_range, nticks=5),
+            yaxis=dict(title='x [m]', range=y_range, nticks=4),
+            zaxis=dict(title='z [m]', range=z_range[::-1], nticks=3),
+            aspectmode='manual',
+            aspectratio=dict(x=aspect[0], y=aspect[1], z=aspect[2]),
             camera=dict(
-                up=dict(x=1, y=0, z=1),
-                eye=dict(x=0, y=0, z=(z_range[1] - z_range[0]))  # Top-down view
+                up=dict(x=0, y=0, z=1),
+                eye=dict(x=1.15, y=1.15, z=1.15)
             )
         ),
         showlegend=False,
-        margin=dict(l=0, r=0, t=50, b=0)  # Tight margins
+        margin=dict(l=25, r=40, t=50, b=0)
     )
 
     # Update the figure and return
@@ -1244,7 +1254,7 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         fig.add_trace(trace)
 
     # Plot the velocity vector u if provided
-    if u_vec is not None and u_vec[0] > 0.1:
+    if u_vec is not None and np.linalg.norm(u_vec[:2]) > 0.1:
         u_x, u_y = u_vec[0], u_vec[1]
         # Place the arrow at the origin (0, 0)
         x0, y0 = 0.0, 0.0

@@ -137,13 +137,13 @@ def _calculate_section_geometry(sections, alpha, is_symmetric, x_translate, z_tr
             coords[1][:] = rotated[1]
             coords[2][:] = rotated[2]
 
-    x_leading_edge += x_translate
-    x_trailing_edge += x_translate
-    x_quarter_chord += x_translate
+    x_leading_edge -= x_translate
+    x_trailing_edge -= x_translate
+    x_quarter_chord -= x_translate
 
-    z_leading_edge += z_translate
-    z_trailing_edge += z_translate
-    z_quarter_chord += z_translate
+    z_leading_edge -= z_translate
+    z_trailing_edge -= z_translate
+    z_quarter_chord -= z_translate
 
     if is_symmetric:
         x_leading_edge = np.concatenate((x_leading_edge[::-1], x_leading_edge))
@@ -161,9 +161,9 @@ def _calculate_section_geometry(sections, alpha, is_symmetric, x_translate, z_tr
         twist_array = np.concatenate((twist_array[::-1], twist_array))
 
     return {
-        'leading_edge': (x_leading_edge, y_leading_edge, z_leading_edge),
-        'trailing_edge': (x_trailing_edge, y_trailing_edge, z_trailing_edge),
-        'quarter_chord': (x_quarter_chord, y_quarter_chord, z_quarter_chord),
+        'leading_edge': (-x_leading_edge, y_leading_edge, -z_leading_edge),
+        'trailing_edge': (-x_trailing_edge, y_trailing_edge, -z_trailing_edge),
+        'quarter_chord': (-x_quarter_chord, y_quarter_chord, -z_quarter_chord),
         'twist': twist_array
     }
 
@@ -193,6 +193,50 @@ def _validate_section(sec, idx=0):
     # Optional numeric keys
     if 'twist' in sec and (not isinstance(sec['twist'], (int, float)) or not np.isfinite(sec['twist'])):
         raise ValueError(f"Section {idx} optional key 'twist' must be a finite number if provided")
+
+
+class Wing:
+    """Wing defined by the existing ordered section dictionaries."""
+
+    def __init__(self, sections):
+        if not isinstance(sections, list) or not sections:
+            raise ValueError("plane['wing_sections'] must be a non-empty list of section dicts")
+        self.sections = sections
+
+    def geometry(self, alpha=0.0):
+        """Return the wing in body axes, independent of flight angle of attack."""
+        return _calculate_section_geometry(self.sections, 0.0, True, 0)
+
+
+class _Tail:
+    symmetric = False
+    name = 'stabilizer'
+
+    def __init__(self, section):
+        if not isinstance(section, dict):
+            raise ValueError(f"plane['{self.name}'] must be a dict describing the stabilizer")
+        self.section = section
+
+    def geometry(self):
+        """Return tail geometry using its existing incidence and translations."""
+        section = self.section
+        return _calculate_section_geometry(
+            [section], section.get('alpha', 0.0), self.symmetric,
+            section.get('x_translate', 0.0), section.get('z_translate', 0.0))
+
+
+class HorizontalTail(_Tail):
+    """Symmetric horizontal stabilizer using the existing geometry convention."""
+
+    symmetric = True
+    name = 'horizontal_stabilizer'
+
+
+class VerticalTail(_Tail):
+    """Unmirrored vertical stabilizer using the existing geometry convention."""
+
+    name = 'vertical_stabilizer'
+
 
 def calculate_geometry(self):
     """
@@ -369,22 +413,11 @@ def calculate_geometry(self):
     hs_geometry = 0
     vs_geometry = 0
     if 'wing_sections' in plane:
-        if not isinstance(plane['wing_sections'], list) or len(plane['wing_sections']) == 0:
-            raise ValueError("plane['wing_sections'] must be a non-empty list of section dicts")
-        # Calculate geometry for wing sections
-        wing_geometry = _calculate_section_geometry(plane['wing_sections'], self.alpha, is_symmetric=True, x_translate=0, z_translate=0)
+        wing_geometry = Wing(plane['wing_sections']).geometry(self.alpha)
     if 'horizontal_stabilizer' in plane:
-        # Calculate geometry for horizontal stabilizer
-        hs = plane['horizontal_stabilizer']
-        if not isinstance(hs, dict):
-            raise ValueError("plane['horizontal_stabilizer'] must be a dict describing the stabilizer")
-        hs_geometry = _calculate_section_geometry([hs], hs.get('alpha', 0.0), True, hs.get('x_translate', 0.0), hs.get('z_translate', 0.0))
+        hs_geometry = HorizontalTail(plane['horizontal_stabilizer']).geometry()
     if 'vertical_stabilizer' in plane:
-        # Calculate geometry for vertical stabilizer
-        vs = plane['vertical_stabilizer']
-        if not isinstance(vs, dict):
-            raise ValueError("plane['vertical_stabilizer'] must be a dict describing the stabilizer")
-        vs_geometry = _calculate_section_geometry([vs], vs.get('alpha', 0.0), False, vs.get('x_translate', 0.0), vs.get('z_translate', 0.0))
+        vs_geometry = VerticalTail(plane['vertical_stabilizer']).geometry()
 
     return wing_geometry, hs_geometry, vs_geometry
 
@@ -483,10 +516,10 @@ def interpolate_wing_points(self, type='wing'):
         z_trailing  = np.linspace(span_trailing[0], span_trailing[-1], n) 
         
         # Interpolate leading and trailing edge coordinates at span positions
-        x_leading   = np.interp(z_leading, span_leading, leading_edge[0])
-        x_trailing  = np.interp(z_trailing, span_trailing, trailing_edge[0])
-        y_leading   = np.interp(z_leading, span_leading, leading_edge[1])
-        y_trailing  = np.interp(z_trailing, span_trailing, trailing_edge[1])
+        x_leading   = np.interp(z_leading, span_leading[::-1], leading_edge[0][::-1])
+        x_trailing  = np.interp(z_trailing, span_trailing[::-1], trailing_edge[0][::-1])
+        y_leading   = np.interp(z_leading, span_leading[::-1], leading_edge[1][::-1])
+        y_trailing  = np.interp(z_trailing, span_trailing[::-1], trailing_edge[1][::-1])
         
         # Interpolate along chord for each span position
         wing_horizontal_lines   = [x_leading * (1 - s) + x_trailing * s for s in chord_fractions]
@@ -509,7 +542,7 @@ def generate_plane_panels(self):
     """
     discretization = self.discretization
     plane = self.plane
-    def generate_panels_for_surface(surface_discretization, sections):
+    def generate_panels_for_surface(surface_discretization, sections, is_vertical=False, is_tail=False):
         panels = []
         quarter_chord_lines = []
         three_quarter_chord_midpoints = []
@@ -530,12 +563,61 @@ def generate_plane_panels(self):
             for j in range(num_chordwise):
                 points[j, i] = [y_i, horizontal_lines[j, i], z_points[j, i]]
 
+        if is_vertical and sections[0].get('twist', 0.0):
+            twist = float(sections[0]['twist'])
+            span_start = points[0, 0, 2]
+            span_end = points[0, -1, 2]
+            if not np.isfinite(twist) or np.isclose(span_start, span_end):
+                raise ValueError('Vertical stabilizer twist requires a finite angle and nonzero vertical span')
+            incidence = float(sections[0].get('alpha', 0.0))
+            span_axis = np.array([-np.sin(incidence), 0.0, -np.cos(incidence)])
+            for i in range(num_spanwise):
+                fraction = (points[0, i, 2] - span_start) / (span_end - span_start)
+                angle = twist * fraction
+                cosine, sine = np.cos(angle), np.sin(angle)
+                pivot = (points[0, i] + 0.25 * (points[-1, i] - points[0, i]))[[1, 0, 2]]
+                for j in range(num_chordwise):
+                    delta = points[j, i, [1, 0, 2]] - pivot
+                    rotated = (cosine * delta - sine * np.cross(span_axis, delta)
+                               + (1 - cosine) * span_axis * np.dot(span_axis, delta))
+                    points[j, i] = (pivot + rotated)[[1, 0, 2]]
+
         # Step 2: Apply flap deflection
         span = vertical_lines[-1, 1] - vertical_lines[0, 0]
         half_span = span / 2
 
         for sec in sections:
             if 'flap_start' in sec:
+                if is_tail:
+                    try:
+                        start = float(sec['flap_start'])
+                        end = float(sec['flap_end'])
+                        hinge = float(sec['flap_hinge_chord'])
+                        angle = float(sec['deflection_angle'])
+                        deflection_type = sec['deflection_type']
+                    except (KeyError, TypeError, ValueError) as error:
+                        raise ValueError('Tail control requires finite start, end, hinge and deflection values') from error
+                    valid_types = ('symmetrical',) if is_vertical else ('symmetrical', 'antisymmetrical')
+                    if (not np.isfinite([start, end, hinge, angle]).all()
+                            or not 0 <= start <= end <= 1 or not 0 <= hinge <= 1
+                            or deflection_type not in valid_types):
+                        raise ValueError('Invalid tail control fractions, deflection or type')
+                if is_vertical:
+                    span_start = points[0, 0, 2]
+                    span_end = points[0, -1, 2]
+                    if np.isclose(span_start, span_end):
+                        raise ValueError('Vertical stabilizer control requires nonzero vertical span')
+                    incidence = float(sec.get('alpha', 0.0))
+                    span_axis = np.array([-np.sin(incidence), 0.0, -np.cos(incidence)])
+                    for i in range(num_spanwise):
+                        fraction = (points[0, i, 2] - span_start) / (span_end - span_start)
+                        if start <= fraction <= end:
+                            hinge_point = (points[0, i] + hinge * (points[-1, i] - points[0, i]))[[1, 0, 2]]
+                            for j in range(num_chordwise):
+                                if j / (num_chordwise - 1) > hinge:
+                                    delta = points[j, i, [1, 0, 2]] - hinge_point
+                                    points[j, i] += (angle * np.cross(span_axis, delta))[[1, 0, 2]]
+                    continue
                 flap_start = sec['flap_start'] * half_span
                 flap_end = sec['flap_end'] * half_span
                 flap_hinge_chord = sec['flap_hinge_chord']
@@ -550,7 +632,7 @@ def generate_plane_panels(self):
                             x_hinge = horizontal_lines[0, i] + flap_hinge_chord * chord_length
                             for j in range(num_chordwise):
                                 x_j = points[j, i][1]
-                                if x_j > x_hinge:
+                                if x_j < x_hinge:
                                     distance_from_hinge = x_j - x_hinge
                                     points[j, i][2] -= deflection_angle * distance_from_hinge
                     elif deflection_type == 'antisymmetrical':
@@ -559,7 +641,7 @@ def generate_plane_panels(self):
                             x_hinge = horizontal_lines[0, i] + flap_hinge_chord * chord_length
                             for j in range(num_chordwise):
                                 x_j = points[j, i][1]
-                                if x_j > x_hinge:
+                                if x_j < x_hinge:
                                     distance_from_hinge = x_j - x_hinge
                                     points[j, i][2] -= deflection_angle * distance_from_hinge
                         elif -flap_end <= y <= -flap_start:  # Left wing (y < 0)
@@ -567,7 +649,7 @@ def generate_plane_panels(self):
                             x_hinge = horizontal_lines[0, i] + flap_hinge_chord * chord_length
                             for j in range(num_chordwise):
                                 x_j = points[j, i][1]
-                                if x_j > x_hinge:
+                                if x_j < x_hinge:
                                     distance_from_hinge = x_j - x_hinge
                                     points[j, i][2] -= -deflection_angle * distance_from_hinge  # Opposite deflection
 
@@ -628,10 +710,10 @@ def generate_plane_panels(self):
         wing_panel_data = generate_panels_for_surface(discretization['wing'], plane['wing_sections'])
         panel_data = wing_panel_data
     if 'horizontal_stabilizer' in discretization:
-        hs_panel_data = generate_panels_for_surface(discretization['horizontal_stabilizer'], [plane['horizontal_stabilizer']])
+        hs_panel_data = generate_panels_for_surface(discretization['horizontal_stabilizer'], [plane['horizontal_stabilizer']], is_tail=True)
         panel_data.extend(hs_panel_data)
     if 'vertical_stabilizer' in discretization:
-        vs_panel_data = generate_panels_for_surface(discretization['vertical_stabilizer'], [plane['vertical_stabilizer']])
+        vs_panel_data = generate_panels_for_surface(discretization['vertical_stabilizer'], [plane['vertical_stabilizer']], is_vertical=True, is_tail=True)
         panel_data.extend(vs_panel_data)
 
     # Calculate the area of the panels 
@@ -684,6 +766,7 @@ def curvature(self):
         return span_count, chord_count, span_count * chord_count
 
     n, m, num_wing_panels = surface_dimensions('wing')
+    num_hs_panels = 0
 
     dz_dx_list = []
     if 'wing_sections' in plane:
@@ -784,10 +867,8 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
             dz_dx_list = dz_dx_total.ravel('F').tolist()
     
     else: # Vertical stabilizer
-        total_span = panel_data[-1][1][3][2]
-        #print(f"Total span: {total_span}")
-        span_positions = np.linspace(0, total_span, int(n))
         x_bounds = np.cumsum([0] + [sec['span_fraction'] for sec in surface_data])
+        span_positions = np.linspace(0, x_bounds[-1], int(n))
         #print(f"Span positions: {span_positions}", f"X bounds: {x_bounds}")
         dz_dx = np.zeros((len(span_positions), m))
         dz_dx_total = None
@@ -830,7 +911,7 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         dz_root_ = (z1_root - z2_root) / (y2 - y1)
                         dz_root = np.append(dz_root, dz_root_)
 
-                    elif np.isclose(z2, tip, atol=1e-6):
+                    if np.isclose(z2, tip, atol=1e-6):
                         intrados_tip = y1
                         extrados_tip = y2
                         #print(f"TIP: Root: {root}, Tip: {tip}, z2: {z2}, intrados_tip: {intrados_tip}, extrados_tip: {extrados_tip}")
@@ -931,7 +1012,7 @@ def wing_to_stl_with_naca_profile(vlm_object, output_filename='wing_with_profile
         numpy-stl mesh object
     """
 
-    from naca import naca_airfoil
+    from lib.naca import naca_airfoil
 
     plane = vlm_object.plane
     wing_sections = plane['wing_sections']
@@ -977,6 +1058,8 @@ def wing_to_stl_with_naca_profile(vlm_object, output_filename='wing_with_profile
 
         x_tip, z_upper_tip, z_lower_tip, _, _, _ = naca_airfoil(
             NACA_tip, chord_tip, twist_tip, naca_resolution)
+        x_root, z_upper_root, z_lower_root = -x_root, -z_upper_root, -z_lower_root
+        x_tip, z_upper_tip, z_lower_tip = -x_tip, -z_upper_tip, -z_lower_tip
 
         # Combine upper and lower surfaces in leading edge order
         # Lower surface backwards + upper surface forward
@@ -1101,7 +1184,7 @@ def wing_to_stl_with_naca_profile(vlm_object, output_filename='wing_with_profile
 
     for i, face in enumerate(all_faces):
         for j in range(3):
-            wing_mesh.vectors[i][j] = vertices[face[j]]
+            wing_mesh.vectors[i][j] = vertices[face[j]] * np.array([-1, 1, -1])
 
     # Save file
     if format.lower() == 'binary':
@@ -1150,7 +1233,7 @@ def wing_to_stl_with_naca_config(plane_config, output_filename='wing_with_profil
         numpy-stl mesh object
     """
 
-    from naca import naca_airfoil
+    from lib.naca import naca_airfoil
 
     wing_sections = plane_config['wing_sections']
 
@@ -1183,6 +1266,8 @@ def wing_to_stl_with_naca_config(plane_config, output_filename='wing_with_profil
             NACA_root, chord_root, twist_root, naca_resolution)
         x_tip, z_upper_tip, z_lower_tip, _, _, _ = naca_airfoil(
             NACA_tip, chord_tip, twist_tip, naca_resolution)
+        x_root, z_upper_root, z_lower_root = -x_root, -z_upper_root, -z_lower_root
+        x_tip, z_upper_tip, z_lower_tip = -x_tip, -z_upper_tip, -z_lower_tip
 
         # Combine surfaces
         x_root_full = np.concatenate([x_root[::-1], x_root[1:]])
@@ -1254,7 +1339,7 @@ def wing_to_stl_with_naca_config(plane_config, output_filename='wing_with_profil
 
     for i, face in enumerate(all_faces):
         for j in range(3):
-            wing_mesh.vectors[i][j] = vertices[face[j]]
+            wing_mesh.vectors[i][j] = vertices[face[j]] * np.array([-1, 1, -1])
 
     # Save
     if format.lower() == 'binary':
@@ -1383,17 +1468,21 @@ def plot_wing_discretization_3d(fig, panel_data):
     num_node_traces = 1             # Consolidated 1/4 chord lines
     num_normal_traces = 2           # Normal lines + cones
 
+    dimensions = np.ptp(np.asarray(panels).reshape(-1, 3), axis=0)
+    aspect = np.maximum(dimensions / max(np.max(dimensions), 1e-12), 1e-6)
+
     # Update layout with toggle button
     fig.update_layout(
         scene=dict(
-            xaxis_title='y [m]', yaxis_title=' [m]', zaxis_title='z [m]',
+            xaxis_title='y [m]', yaxis_title='x [m]', zaxis_title='z [m]',
             xaxis=dict(showbackground=False, showgrid=False, zeroline=False),
             yaxis=dict(showbackground=False, showgrid=False, zeroline=False),
             zaxis=dict(showbackground=False, showgrid=False, zeroline=False),
-            aspectmode='data',
+            aspectmode='manual',
+            aspectratio=dict(x=aspect[0], y=aspect[1], z=aspect[2]),
             camera =
-                      {'eye':{'x':0,'y':1,'z':0}, 
-                       'up': {'x':0,'y':0,'z':1}, 
+                      {'eye':{'x':1.15,'y':1.15,'z':-1.15},
+                       'up': {'x':0,'y':0,'z':-1},
                        'center': {'x':0,'y':0,'z':0}},
         ),
         title=dict(text='Wing Discretization'),
@@ -1527,13 +1616,15 @@ def plot_wing_discretization_2d(fig, panel_data):
     buttons = []
     for proj in projections:
         buttons.append(dict(
-            label=proj.upper() + ' Projection',
+            label={'xy': 'XY Projection', 'xz': 'YZ Projection', 'yz': 'XZ Projection'}[proj],
             method='update',
             args=[
                 {'visible': [proj == p for p in projections for _ in traces[p]]},
                 {
                     'xaxis.title': axes_titles[proj][0],
-                    'yaxis.title': axes_titles[proj][1]
+                    'yaxis.title': axes_titles[proj][1],
+                    'xaxis.autorange': 'reversed' if proj == 'yz' else True,
+                    'yaxis.autorange': 'reversed' if proj != 'xy' else True,
                 }
             ]
         ))
@@ -1605,6 +1696,11 @@ def plot_wing_geometry(fig, wing_geometry, legend):
             legendgroup='Quarter-chord line',
             showlegend=True if legend == "Wing Geometry" else False,  # Show legend only if not "Wing Geometry"
         ))
+        dimensions = np.array([
+            np.ptp(np.concatenate([np.asarray(getattr(trace, axis), dtype=float) for trace in fig.data]))
+            for axis in ('x', 'y', 'z')
+        ])
+        aspect = np.maximum(dimensions / max(np.max(dimensions), 1e-12), 1e-6)
         # Set layout
         fig.update_layout(
             scene=dict(
@@ -1614,11 +1710,12 @@ def plot_wing_geometry(fig, wing_geometry, legend):
             xaxis=dict(showbackground=False, showgrid=False, zeroline=False),
             yaxis=dict(showbackground=False, showgrid=False, zeroline=False),
             zaxis=dict(showbackground=False, showgrid=False, zeroline=False),
-            aspectmode='data',  # Automatically adjust aspect ratio to fit data
+            aspectmode='manual',
+            aspectratio=dict(x=aspect[0], y=aspect[1], z=aspect[2]),
             camera = dict(
-                up=dict(x=0, y=0, z=1),
+                up=dict(x=0, y=0, z=-1),
                 center=dict(x=0, y=0, z=0),
-                eye=dict(x=0, y=0, z=2.5)
+                eye=dict(x=1.15, y=1.15, z=-1.15)
             )),
             title=dict(text='Wing Geometry'),
             legend=dict(x=0, y=1.02, orientation='h'),

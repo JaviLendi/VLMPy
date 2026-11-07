@@ -53,18 +53,18 @@ def serialize_panel_geometry(panel_data: list[Any]) -> dict[str, Any]:
         if panel.shape != (4, 3):
             raise ValueError("Each panel must contain four 3D vertices")
         offset = len(vertices)
-        vertices.extend(_array_points(panel))
+        vertices.extend(_array_points(panel[:, [1, 0, 2]]))
         indices.extend([offset, offset + 1, offset + 2, offset, offset + 2, offset + 3])
         panel_ids.extend([panel_index, panel_index])
-        control_points.append(_array_points([item[3]])[0])
+        control_points.append(_array_points([np.asarray(item[3])[[1, 0, 2]]])[0])
         normal_vector, midpoint = item[4]
         normals.append({
-            "vector": _array_points([normal_vector])[0],
-            "origin": _array_points([midpoint])[0],
+            "vector": _array_points([np.asarray(normal_vector)[[1, 0, 2]]])[0],
+            "origin": _array_points([np.asarray(midpoint)[[1, 0, 2]]])[0],
         })
 
     return {
-        "coordinate_system": "VLMPy",
+        "coordinate_system": "body_x_forward_y_right_z_down",
         "units": "m",
         "vertices": vertices,
         "indices": indices,

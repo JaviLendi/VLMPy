@@ -136,16 +136,16 @@ class UnifiedConfigManager {
                         if (![rootChord, tipChord, span, sweep, dihedral, xOffset, zOffset].every(Number.isFinite) || rootChord <= 0 || tipChord <= 0 || span <= 0) return;
                         const length = symmetric ? span / 2 : span;
                         const next = [
-                            leading[0] + Math.tan(sweep) * length * (symmetric ? Math.cos(dihedral) : 1),
+                            leading[0] - Math.tan(sweep) * length * (symmetric ? Math.cos(dihedral) : 1),
                             leading[1] + length * Math.cos(dihedral),
-                            leading[2] + length * Math.sin(dihedral),
+                            leading[2] - length * Math.sin(dihedral),
                         ];
                         const chord = previousChord ?? rootChord;
                         const vertices = [
                             [leading[0], leading[1], leading[2]],
                             [next[0], next[1], next[2]],
-                            [next[0] + tipChord, next[1], next[2]],
-                            [leading[0] + chord, leading[1], leading[2]],
+                            [next[0] - tipChord, next[1], next[2]],
+                            [leading[0] - chord, leading[1], leading[2]],
                         ];
                         for (const side of symmetric ? [-1, 1] : [1]) {
                             polygons.push({type, points: vertices.map(([x, y, z]) => [x + xOffset, y * side, z + zOffset])});
@@ -158,7 +158,7 @@ class UnifiedConfigManager {
                 if (horizontal) addSurface([horizontal], 'horizontal-stabilizer', true);
                 if (vertical) addSurface([vertical], 'vertical-stabilizer', false);
 
-                const project = ([x, y, z]) => [y + 0.35 * x, 0.55 * x - 0.12 * y - 0.85 * z];
+                const project = ([x, y, z]) => [y - 0.35 * x, -0.55 * x - 0.12 * y + 0.85 * z];
                 const projected = polygons.map(polygon => ({...polygon, points: polygon.points.map(project)}));
                 const vertices = projected.flatMap(polygon => polygon.points);
                 const minX = vertices.length ? Math.min(...vertices.map(point => point[0])) : 0;

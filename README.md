@@ -51,7 +51,7 @@
 - **Accurate VLM Implementation**: Compute aerodynamic coefficients ($C_L$, $C_D$, moments) for wing configurations.
 - **Interactive Visualization**: 2D/3D plots of lift distribution, pressure coefficients, and geometry using Plotly and Matplotlib.
 - **Customizable Geometry**: Define wing parameters like sweep, dihedral, taper, and control surfaces.
-- **External Geometry Roadmap**: Plan support for OpenVSP workflows and STL surface-mesh inspection and import, subject to explicit unit, coordinate, component-mapping, and aerodynamic-panelization validation.
+- **Fuselage Geometry**: Define elliptical stations in the app or load previously imported STL meshes. STL import through the app is temporarily unavailable. Fuselages are visual geometry only and do not affect VLM forces or moments.
 - **Flexible Flight Conditions**: Analyze multiple angles of attack, sideslip angles, and airspeeds.
 - **NACA Airfoil Support**: Generate and analyze NACA airfoil profiles.
 - **Modular Architecture**: Extensible Python codebase for custom analyses and integration with NumPy, Matplotlib, and more.
@@ -164,6 +164,28 @@
 - **Web Interface**: Run `python src/vlm/launcher.py` to open the desktop interface.
 
 Example notebooks and documentation are available in `docs/notebooks/` and `docs/`.
+
+### Aircraft reference frame
+
+Aircraft coordinates use body axes: x forward, y right, and z down, in metres. The wing leading-edge root is the geometry origin; tail translations and fuselage placement are expressed in these axes. Positive sweep moves the tip aft and positive dihedral raises it. Angles in the Python API are in radians; the app uses degrees. The relative freestream is `-U * (cos(alpha)*cos(beta), sin(beta), sin(alpha)*cos(beta))`. The prescribed wake remains aligned with negative body x.
+
+Configurations saved before this coordinate change need their x and z positions converted before reuse; imported STL vertices and rotations must also be checked against their source frame. Legacy saved results use different axes and cannot be loaded as current results; rerun the analysis. Panel data retain their internal `(y, x, z)` storage order, while the wing preview API and STL export use `(x, y, z)`.
+
+### Fuselage geometry
+
+In Plane Definition, select **Define stations** and use the station controls to enter each x position, y radius, and z radius in metres. Positions must increase along x, from tail towards nose; the end radii must be zero and interior radii positive. Consecutive elliptical sections are connected linearly.
+
+STL import through the app is temporarily unavailable; previously saved imported fuselages can still be loaded. The import API accepts ASCII and binary STL files up to 5 MiB and 50,000 triangles, not native CAD or OpenVSP files. STL does not encode reliable units or component semantics. Record the source tool, frame, and tessellation settings when known; the source file is not modified. Saved configurations contain the imported mesh and source checksum, not the original file.
+
+Placement uses translation in metres and rotations in degrees about fixed aircraft x, y, then z axes, followed by translation. Previously imported STL geometry also supports an explicit positive scale factor about its source origin, applied before rotation and translation. The x axis is longitudinal, y lateral, and z vertical. Review the source frame and explicitly choose the placement: no units or orientation are inferred. Fuselage meshes are previewed with lifting surfaces but are not aerodynamic panels and do not affect the VLM solution. Wing-body interference and fuselage loads are not modeled.
+
+**Generate STL** includes the selected fuselage with the wing and any configured stabilizers. Components are exported as separate, potentially intersecting surfaces in one STL; they are not boolean-merged. STL does not encode units, so treat exported coordinates as metres. Control-surface deflections are not represented in STL exports.
+
+### Tail geometry and controls
+
+Horizontal and vertical stabilizers accept incremental root-to-tip twist and optional span-limited elevator or rudder deflection. Angles in the app are degrees; the Python configuration uses radians. Positive twist moves the horizontal-tail trailing edge toward positive z and the vertical-tail leading edge toward positive y. Control start and end are fractions of the horizontal tail's half-span or the vertical tail's span; the hinge is a chord fraction from the leading edge. Positive elevator deflection moves the trailing edge toward positive z; positive rudder deflection moves it toward positive y. The control geometry is a small-angle approximation, not a nonlinear hinge or separated-flow model. Static control derivatives use central differences per radian. Symmetric horizontal-tail discretization uses an even number of spanwise panels. Tail control response has software and symmetry checks but no external aerodynamic validation.
+
+The Python component classes `Wing`, `HorizontalTail`, and `VerticalTail` in `src/vlm/lib/geometry.py` and `Fuselage` in `src/vlm/lib/fuselage.py` accept the existing configuration dictionaries. They do not replace the public `VLM` plane-dictionary interface.
 
 ---
 

@@ -5,8 +5,8 @@
 
 Conventions
 -----------
-- Frame: x along the chord (LE at x=0), z up, geometry at zero incidence.
-  The free stream is rotated instead: V = U (cos(alpha), sin(alpha)).
+- Body axes: x forward, z down, leading edge at x=0, geometry at zero incidence.
+    The relative free stream is V = -U (cos(alpha), sin(alpha)).
 - Panel nodes run TE(lower) -> LE -> TE(upper), so the outward normal is
   n = (-dz, dx) / L and the tangent t = (dx, dz) / L.
 - Cp = 1 - (Vt / U)^2 (incompressible, inviscid, attached flow, no viscous drag).
@@ -50,7 +50,7 @@ def naca4_panel_nodes(code: str, chord: float, n_panels: int) -> tuple[np.ndarra
     x = chord * xc
     zu = chord * (zc + zt)
     zl = chord * (zc - zt)
-    return np.concatenate((x[::-1], x[1:])), np.concatenate((zl[::-1], zu[1:]))
+    return -np.concatenate((x[::-1], x[1:])), -np.concatenate((zl[::-1], zu[1:]))
 
 
 class PanelGeometry:
@@ -65,7 +65,7 @@ class PanelGeometry:
         self.n_x, self.n_z = -dz / self.L, dx / self.L
         theta = np.arctan2(dz, dx)
         self.cos, self.sin = np.cos(theta), np.sin(theta)
-        self.i_le = int(np.argmin(self.x_mid))
+        self.i_le = int(np.argmax(self.x_mid))
         self.path = Path(np.column_stack((x, z)))
 
     def local_coords(self, px: np.ndarray, pz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -130,7 +130,7 @@ def _solve_source(geo: PanelGeometry, U: float, alpha: float) -> dict[str, Any]:
     VnS, VnV = UsG * nx + WsG * nz, UvG * nx + WvG * nz
     VtS, VtV = UsG * tx + WsG * tz, UvG * tx + WvG * tz
 
-    ca, sa = np.cos(alpha), np.sin(alpha)
+    ca, sa = -np.cos(alpha), -np.sin(alpha)
     A = np.zeros((n + 1, n + 1))
     b = np.zeros(n + 1)
     A[:n, :n] = VnS
@@ -163,7 +163,7 @@ def _solve_doublet(geo: PanelGeometry, U: float, alpha: float) -> dict[str, Any]
     A[:, n - 1] += vn_wake
     A[:, 0] -= vn_wake
 
-    ca, sa = np.cos(alpha), np.sin(alpha)
+    ca, sa = -np.cos(alpha), -np.sin(alpha)
     b = -U * (ca * geo.n_x + sa * geo.n_z)
     # Neumann doublet matrix has rank n-1 (uniform mu is a null vector); min-norm solution
     # leaves Vt and mu_N - mu_0 unchanged.
@@ -194,8 +194,8 @@ def velocity_field(geo: PanelGeometry, method: str, sol: dict[str, Any], U: floa
         ud, wd = _doublet_local(xp, zp, geo.L)
         u_loc, w_loc = strength * ud, strength * wd
     ug, wg = geo.to_global(u_loc, w_loc)
-    u = U * np.cos(alpha) + ug.sum(axis=1)
-    w = U * np.sin(alpha) + wg.sum(axis=1)
+    u = -U * np.cos(alpha) + ug.sum(axis=1)
+    w = -U * np.sin(alpha) + wg.sum(axis=1)
     if method == "doublet":
         uw, ww = _wake_velocity(px, pz, geo.x[0], geo.z[0])
         u, w = u + sol["gamma"] * uw, w + sol["gamma"] * ww
@@ -213,7 +213,7 @@ def _trace_streamlines(geo, method, sol, U, alpha, bounds, count, ds, max_steps)
     x_min, x_max, z_min, z_max = bounds
     t = np.linspace(-1.0, 1.0, count)
     z0 = 0.5 * (z_max - z_min) * 0.9 * np.sinh(2.5 * t) / np.sinh(2.5) + 0.5 * (z_max + z_min)
-    pos = np.column_stack((np.full(count, x_min), z0))
+    pos = np.column_stack((np.full(count, x_max), z0))
     active = np.ones(count, dtype=bool)
     paths = [[pos[i].copy()] for i in range(count)]
 
@@ -229,7 +229,7 @@ def _trace_streamlines(geo, method, sol, U, alpha, bounds, count, ds, max_steps)
         p = pos[idx]
         mid = p + 0.5 * ds * direction(p)
         new = p + ds * direction(mid)
-        stop = ((new[:, 0] > x_max) | (new[:, 1] < z_min) | (new[:, 1] > z_max)
+        stop = ((new[:, 0] < x_min) | (new[:, 1] < z_min) | (new[:, 1] > z_max)
                 | geo.inside(new[:, 0], new[:, 1]))
         for k, i in enumerate(idx):
             if stop[k]:
@@ -279,9 +279,9 @@ def solve_airfoil_panels(code: str, chord: float, alpha_deg: float, U: float,
 
     cx = -np.sum(cp * geo.n_x * geo.L) / chord
     cz = -np.sum(cp * geo.n_z * geo.L) / chord
-    cl_pressure = -cx * np.sin(alpha) + cz * np.cos(alpha)
-    cd_pressure = cx * np.cos(alpha) + cz * np.sin(alpha)
-    cm = np.sum(cp * (geo.n_z * (geo.x_mid - 0.25 * chord) - geo.n_x * geo.z_mid) * geo.L) / chord**2
+    cl_pressure = cx * np.sin(alpha) - cz * np.cos(alpha)
+    cd_pressure = -cx * np.cos(alpha) - cz * np.sin(alpha)
+    cm = np.sum(cp * (geo.n_z * (geo.x_mid + 0.25 * chord) - geo.n_x * geo.z_mid) * geo.L) / chord**2
     if method == "doublet":
         cl = float(-2.0 * sol["gamma"] / (U * chord))
         cl_kutta = cl
@@ -319,7 +319,7 @@ def solve_airfoil_panels(code: str, chord: float, alpha_deg: float, U: float,
     }
 
     if with_field:
-        x_min, x_max = -0.4 * chord, 1.6 * chord
+        x_min, x_max = -1.6 * chord, 0.4 * chord
         z_min, z_max = -0.6 * chord, 0.6 * chord
         gx = np.linspace(x_min, x_max, 320)
         gz = np.linspace(z_min, z_max, 160)

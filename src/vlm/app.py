@@ -83,6 +83,7 @@ from lib.naca import plot_naca_airfoil, naca_csv
 from lib.naca import naca_airfoil
 from lib.panel2d import solve_airfoil_panels
 from lib.geometry_serialization import serialize_airfoil, serialize_panel_geometry
+from lib.fuselage import fuselage_mesh, inspect_stl, MAX_STL_BYTES
 from lib.geometry import (
     plot_wing_geometry, plot_wing_geometry_2d,
     plot_wing_discretization_2d, plot_wing_discretization_3d
@@ -409,6 +410,33 @@ def index():
 def airfoil():
     return render_template("airfoil.html", default_naca=default_naca)
 
+def _parse_tail_inputs(form, prefix):
+    result = {}
+    twist = form.get(f'{prefix}_twist')
+    if twist is not None:
+        try:
+            twist = float(twist)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Tail twist must be a finite number') from error
+        if not np.isfinite(twist):
+            raise ValueError('Tail twist must be a finite number')
+        result['twist'] = float(np.radians(twist))
+    if form.get(f'{prefix}_control_enabled') == '1':
+        try:
+            start = float(form[f'{prefix}_flap_start'])
+            end = float(form[f'{prefix}_flap_end'])
+            hinge = float(form[f'{prefix}_flap_hinge_chord'])
+            angle = float(form[f'{prefix}_deflection_angle'])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError('Tail control requires finite start, end, hinge and deflection values') from error
+        if (not np.isfinite([start, end, hinge, angle]).all()
+                or not 0 <= start <= end <= 1 or not 0 <= hinge <= 1):
+            raise ValueError('Tail control fractions must be ordered and between 0 and 1')
+        result.update({'flap_start': start, 'flap_end': end, 'flap_hinge_chord': hinge,
+                       'deflection_angle': float(np.radians(angle)), 'deflection_type': 'symmetrical'})
+    return result
+
+
 def _parse_wing_form(form) -> dict:
     # Extrae secciones del formulario de manera robusta
     chord_roots = form.getlist("chord_root[]")
@@ -457,6 +485,14 @@ def _parse_wing_form(form) -> dict:
             logger.exception("Error parsing wing section")
             continue
     plane = {"wing_sections": sections}
+    fuselage_data = form.get('fuselage', '').strip()
+    if fuselage_data:
+        try:
+            fuselage = json.loads(fuselage_data)
+            fuselage_mesh(fuselage)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Invalid fuselage geometry') from error
+        plane['fuselage'] = fuselage
 
     # HTP & VTP
     if form.getlist("horizontal_toggled[]") == ["1"]:
@@ -472,6 +508,7 @@ def _parse_wing_form(form) -> dict:
             "alpha": np.radians(safe_float(form.get("htp_alpha", 0.0))),
             "dihedral": np.radians(safe_float(form.get("htp_dihedral", 0.0))),
         }
+        plane["horizontal_stabilizer"].update(_parse_tail_inputs(form, 'htp'))
 
     if form.getlist("vertical_toggled[]") == ["1"]:
         plane["vertical_stabilizer"] = {
@@ -486,6 +523,7 @@ def _parse_wing_form(form) -> dict:
             "alpha": np.radians(safe_float(form.get("alpha_v", 0.0))),
             "dihedral": np.radians(90),
         }
+        plane["vertical_stabilizer"].update(_parse_tail_inputs(form, 'vtp'))
 
     return plane
 
@@ -540,7 +578,7 @@ def plane_route():
 
         except ValueError as e:
             logger.error("Invalid input in /wing", exc_info=True)
-            return jsonify({"status": "error", "message": "Invalid input"}), 400
+            return jsonify({"status": "error", "message": str(e)}), 400
         except Exception as e:
             logger.exception("Error in /wing")
             return jsonify({"status": "error", "message": "Server error"}), 500
@@ -793,6 +831,37 @@ def wing_preview():
         logger.exception('Error generating wing preview')
         return jsonify({'status': 'error', 'message': 'Unable to generate wing preview'}), 500
 
+
+@app.route('/api/fuselage/preview', methods=['POST'])
+@session_required
+def fuselage_preview():
+    try:
+        configuration = request.get_json(silent=True)
+        vertices, faces = fuselage_mesh(configuration)
+        return jsonify({'status': 'success', 'vertices': vertices.tolist(), 'faces': faces.tolist(),
+                        'bounds_m': [vertices.min(axis=0).tolist(), vertices.max(axis=0).tolist()]})
+    except (TypeError, ValueError) as error:
+        return jsonify({'status': 'error', 'message': str(error)}), 400
+
+
+@app.route('/api/fuselage/import', methods=['POST'])
+@session_required
+def fuselage_import():
+    upload = request.files.get('file')
+    if upload is None or not upload.filename or not upload.filename.lower().endswith('.stl'):
+        return jsonify({'status': 'error', 'message': 'Select an STL file'}), 400
+    try:
+        content = upload.stream.read(MAX_STL_BYTES + 1)
+        configuration, report = inspect_stl(content, secure_filename(upload.filename), request.form.get('units'))
+        for field in ('source_tool', 'source_version', 'export_settings', 'coordinate_system'):
+            value = request.form.get(field, '').strip()
+            if len(value) > 500:
+                raise ValueError(f'{field} must be at most 500 characters')
+            configuration['source'][field] = value
+        return jsonify({'status': 'success', 'fuselage': configuration, 'report': report})
+    except (TypeError, ValueError) as error:
+        return jsonify({'status': 'error', 'message': str(error)}), 400
+
 @app.route('/save_airfoil', methods=['POST'])
 @legacy_compatibility
 @session_required
@@ -971,6 +1040,8 @@ def load_results_api():
             return jsonify({"status": "error", "message": "No active VLM session"}), 400
         result_path = _result_file_path(filename)
         manifest = json.loads(result_path.read_text(encoding='utf-8'))
+        if manifest.get('schema') != 'vlmpy.results' or manifest.get('schema_version') != 2:
+            return jsonify({'status': 'error', 'message': 'Legacy results use a different coordinate convention; recalculate them'}), 400
         vlm.apply_configuration(manifest['configuration'], include_flight=True)
         vlm.calculate_discretization()
         vlm.load_results(str(result_path))
