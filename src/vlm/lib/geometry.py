@@ -760,7 +760,7 @@ def compute_surface_curvature(surface_data, panel_data, n, m, is_symmetric, type
                         dz_root_ = (z1_root - z2_root) / (y2 - y1)
                         dz_root = np.append(dz_root, dz_root_)
 
-                    elif np.isclose(x2, tip, atol=1e-6):
+                    if np.isclose(x2, tip, atol=1e-6):
                         intrados_tip = y1
                         extrados_tip = y2
                         #print(f"TIP: Root: {root}, Tip: {tip}, x2: {x2}, intrados_tip: {intrados_tip}, extrados_tip: {extrados_tip}")

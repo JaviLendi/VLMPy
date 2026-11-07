@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 from threading import Thread
+import json
+import sys
+import threading
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import os
@@ -9,6 +13,10 @@ import psutil
 from PySide6 import QtCore, QtWidgets, QtWebEngineCore, QtWebEngineWidgets, QtGui
 from waitress import create_server
 from waitress.wasyncore import close_all
+
+
+class _Notifier(QtCore.QObject):
+    message = QtCore.Signal(str)
 
 
 class LocalWSGIServer:
@@ -59,6 +67,12 @@ class WebUI:
         self._view.setPage(self._page)
 
         self._qt_app.aboutToQuit.connect(self.stop)
+
+        self._load_failures = 0
+        self._notifier = _Notifier()
+        self._notifier.message.connect(self.notify_error)
+        self._page.renderProcessTerminated.connect(self._handle_render_crash)
+        self._install_exception_hooks()
 
         # Optimize process priority
         self._optimize_resources()
@@ -120,9 +134,36 @@ class WebUI:
 
 
     def _handle_load_finished(self, ok):
-        if not ok:
-            print("[INFO] Reloading...")
+        if ok:
+            self._load_failures = 0
+            return
+        self._load_failures += 1
+        if self._load_failures <= 10:
             QtCore.QTimer.singleShot(1000, self._view.reload)  # Wait 1 second, then reload.
+            return
+        self._view.setHtml(
+            "<body style='background:#0a1017;color:#e7eef0;font-family:sans-serif;text-align:center;padding-top:20vh'>"
+            "<h2>VLMPy could not load the interface</h2>"
+            "<button onclick='location.href=\"" + self._url + "\"'>Retry</button></body>"
+        )
+        self._load_failures = 0
+
+    def notify_error(self, message):
+        """Show an error through the in-page notification center."""
+        js = f"window.messageCenter && window.messageCenter.error({json.dumps(str(message))}, 10000);"
+        self._page.runJavaScript(js)
+
+    def _handle_render_crash(self, status, exit_code):
+        self.notify_error(f"The renderer stopped unexpectedly (code {exit_code}). Reloading...")
+        QtCore.QTimer.singleShot(500, self._view.reload)
+
+    def _install_exception_hooks(self):
+        def report(exc_type, exc, tb):
+            traceback.print_exception(exc_type, exc, tb)
+            self._notifier.message.emit(f"Unexpected error: {exc}")
+
+        sys.excepthook = report
+        threading.excepthook = lambda args: report(args.exc_type, args.exc_value, args.exc_traceback)
 
 
     def _run_gui(self):

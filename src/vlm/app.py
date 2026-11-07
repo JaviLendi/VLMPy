@@ -354,6 +354,24 @@ def compute_vlm_async(plane, u, rho, alpha, beta, n, m, session_id, timeout: Opt
         logger.exception("Error waiting VLM future")
         return {"status": "error", "message": f"VLM thread failed: {e}"}
 
+def _wants_page() -> bool:
+    dest = request.headers.get("Sec-Fetch-Dest")
+    if dest:
+        return dest in ("document", "iframe")
+    return request.method == "GET" and request.accept_mimetypes.best == "text/html"
+
+@app.errorhandler(Exception)
+def handle_any_exception(exc):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        code, message = exc.code or 500, f"{exc.name}: {exc.description}"
+    else:
+        logger.exception("Unhandled exception")
+        code, message = 500, f"Unexpected error: {exc}"
+    if _wants_page():
+        return render_template("error.html", message=message), code
+    return jsonify({"status": "error", "message": message}), code
+
 # Routes
 @app.route("/")
 def index():
@@ -615,6 +633,8 @@ def results():
         )
     except Exception as e:
         logger.exception("Error in /results")
+        if _wants_page():
+            return render_template("error.html", message=f"Error computing results: {e}"), 500
         return jsonify({"status": "error", "message": f"Exception: {e}"}), 500
 
 @app.route('/api/aerodynamics/derivatives', methods=['POST'])

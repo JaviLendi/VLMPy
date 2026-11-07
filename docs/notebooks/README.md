@@ -1,8 +1,8 @@
 # VLMPy Notebooks
 
 Jupyter notebooks that exercise the public `VLM` API (`src/vlm/lib/vlm.py`,
-`src/vlm/lib/geometry.py`) to explain how VLMPy works. Each notebook imports the real
-library code directly — nothing here is a mock or a re-implementation.
+`src/vlm/lib/geometry.py`) to explain how VLMPy works. They use the actual library;
+independent reference calculations are identified separately from the solver.
 
 ## Prerequisites
 
@@ -12,7 +12,16 @@ library code directly — nothing here is a mock or a re-implementation.
 - A Jupyter kernel (VS Code's built-in notebook support or `jupyter lab`/`notebook`).
 
 Every notebook's first code cell searches upward from the current working directory for
-`src/vlm` and adds it to `sys.path`, so the notebooks can be launched from any directory.
+`src/vlm` and adds it to `sys.path`, so the notebooks can be launched from the repository
+root or a directory inside the repository.
+
+Each notebook introduces its theory and workflow before the examples, includes numerical
+diagnostics and visualizations, and closes with verification and validation limits,
+references, use cases, possible improvements, and next steps. A theoretical comparison
+or an internal consistency check is not experimental validation.
+
+See [VALIDATION-PLAN.md](VALIDATION-PLAN.md) for prioritized findings, remaining
+verification work, external-validation requirements, and acceptance evidence.
 
 ## Contents
 
@@ -37,7 +46,17 @@ Every notebook's first code cell searches upward from the current working direct
    following Katz & Plotkin, Chapter 11. It verifies the influence kernels against
    numerical integration, the Neumann and Kutta residuals, Kutta-Joukowski against the
    pressure integral, convergence with panel count, and the near-field behavior of the
-   velocity field. It needs only `numpy`, `matplotlib` and `plotly`.
+   velocity field. It also compares the NACA 0012 lift slope with a qualified NASA
+   correlation; the observed difference is documented as unresolved. It needs only
+   `numpy`, `matplotlib` and `plotly`.
+6. **`06_aerodynamic_coefficients.ipynb`** — explains the scalar and vector force
+   and moment coefficients, reconstructs panel loads, studies mesh
+   convergence, and compares lift and induced drag with an independent lifting-line
+   calculation. The comparison is theoretical, not experimental validation.
+7. **`07_static_aerodynamic_derivatives.ipynb`** — explains the static derivatives
+   of force and moment coefficients, verifies central differences and state
+   restoration, and examines reference-point, step-size, spanwise, and chordwise mesh
+   sensitivity.
 
 ## Scope and limitations
 

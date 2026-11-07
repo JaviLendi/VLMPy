@@ -405,7 +405,7 @@ function wingPreviewGeometry() {
         const flapStart = wingPreviewNumber(section.querySelector('[name="flap_start[]"]')?.value, 0.2);
         const flapEnd = wingPreviewNumber(section.querySelector('[name="flap_end[]"]')?.value, 0.8);
         const flapHinge = wingPreviewNumber(section.querySelector('[name="flap_hinge_chord[]"]')?.value, 0.25);
-        const nextSpan = span + spanFraction / 2;
+        const nextSpan = span + Math.cos(dihedral) * (spanFraction / 2);
         const nextHeight = height - Math.sin(dihedral) * (spanFraction / 2);
         const nextLead = lead + Math.tan(sweep) * (spanFraction / 2) * Math.cos(dihedral);
         right.push({root: {x: lead, y: span, z: height, c: chordRoot, naca: nacaRoot, twist: rootTwist}, tip: {x: nextLead, y: nextSpan, z: nextHeight, c: chordTip, naca: nacaTip, twist: tipTwist}, flap: {enabled: flapEnabled, start: flapStart, end: flapEnd, hinge: flapHinge}});
@@ -695,8 +695,7 @@ function renderWingPreview() {
         const rotatedDepth = x * sy + y * cy;
         const rotatedY = -z * cp - rotatedDepth * sp;
         const depth = rotatedDepth * cp + z * sp;
-        const perspective = 1 + depth * 0.015;
-        return [-rotatedX * perspective, rotatedY * perspective];
+        return [-rotatedX, rotatedY];
     };
     const projected = shapes.map(shape => shape.map(project));
     const projectedDetails = detailShapes.map(detail => ({type: detail.type, points: detail.points.map(project)}));

@@ -142,6 +142,16 @@ class MessageCenter {
 window.MessageCenter = MessageCenter;
 window.messageCenter = new MessageCenter();
 
+/* Route uncaught JS errors and rejected promises through notifications. */
+window.addEventListener('error', e => {
+    if (!e.message || e.message.startsWith('ResizeObserver')) return;
+    window.messageCenter.error(`Unexpected error: ${e.message}`);
+});
+window.addEventListener('unhandledrejection', e => {
+    const reason = e.reason;
+    window.messageCenter.error(`Unexpected error: ${reason?.message ?? reason ?? 'Unknown'}`);
+});
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { MessageCenter };
 }
