@@ -60,6 +60,7 @@ except Exception as e:
 import re
 import sys
 import shutil
+from werkzeug.utils import secure_filename
 
 # Frozen (PyInstaller): bundled resources live in _MEIPASS/vlm; writable data goes next to the exe.
 if getattr(sys, "frozen", False):
@@ -106,6 +107,33 @@ SAVED_AIRFOILS = DATA_DIR / "saved_airfoils"
 SAVED_STATES = DATA_DIR / "saved_states"
 SAVED_AIRFOILS.mkdir(parents=True, exist_ok=True)
 SAVED_STATES.mkdir(parents=True, exist_ok=True)
+
+
+def _validated_result_filename(filename, require_json=False):
+    if not isinstance(filename, str) or not filename or len(filename) > 255:
+        return None
+    safe_filename = secure_filename(filename)
+    if safe_filename != filename or filename in {'.', '..'}:
+        return None
+    if not all(
+        character.isascii() and (character.isalnum() or character in '._-')
+        for character in filename
+    ):
+        return None
+    if require_json and (not filename.endswith('.json') or filename == '.json'):
+        return None
+    return safe_filename
+
+
+def _result_file_path(filename):
+    safe_filename = _validated_result_filename(filename)
+    if safe_filename is None:
+        raise ValueError('Invalid result filename')
+    states_dir = SAVED_STATES.resolve()
+    result_path = (states_dir / safe_filename).resolve()
+    if result_path.parent != states_dir:
+        raise ValueError('Invalid result filename')
+    return result_path
 
 # Resource optimization (robust, non‑intrusive)
 def optimize_resources(reserve_cores: int = 1, omp_threads: Optional[int] = None):
@@ -512,10 +540,10 @@ def plane_route():
 
         except ValueError as e:
             logger.error("Invalid input in /wing", exc_info=True)
-            return jsonify({"status": "error", "message": f"Invalid input: {e}"}), 400
+            return jsonify({"status": "error", "message": "Invalid input"}), 400
         except Exception as e:
             logger.exception("Error in /wing")
-            return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
+            return jsonify({"status": "error", "message": "Server error"}), 500
 
     saved_config = None
     with vlm_sessions_lock:
@@ -652,10 +680,10 @@ def calculate_aerodynamic_derivatives_api():
         derivatives = json.loads(json.dumps(derivatives, default=float))
         return jsonify({'status': 'success', 'derivatives': derivatives})
     except (TypeError, ValueError) as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid derivative parameters'}), 400
     except Exception as e:
         logger.exception('Error calculating aerodynamic derivatives')
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'Unable to calculate aerodynamic derivatives'}), 500
 
 @app.route('/plot/airfoil', methods=['POST'])
 @session_required
@@ -673,7 +701,7 @@ def plot_airfoil():
         return jsonify({"plot": plot_json})
     except Exception as e:
         logger.exception("Error en /plot/airfoil")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Unable to generate airfoil plot"}), 500
 
 
 @app.route('/api/airfoil/preview', methods=['POST'])
@@ -704,10 +732,10 @@ def airfoil_preview():
             'geometry': serialize_airfoil(x, z),
         })
     except (TypeError, ValueError) as exc:
-        return jsonify({'status': 'error', 'message': str(exc)}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid airfoil preview parameters'}), 400
     except Exception as exc:
         logger.exception('Error generating airfoil preview')
-        return jsonify({'status': 'error', 'message': str(exc)}), 500
+        return jsonify({'status': 'error', 'message': 'Unable to generate airfoil preview'}), 500
 
 
 @app.route('/api/airfoil/panel', methods=['POST'])
@@ -727,10 +755,10 @@ def airfoil_panel_solution():
         )
         return jsonify({'status': 'success', **result})
     except (TypeError, ValueError, np.linalg.LinAlgError) as exc:
-        return jsonify({'status': 'error', 'message': str(exc)}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid airfoil panel parameters'}), 400
     except Exception as exc:
         logger.exception('Error solving airfoil panel method')
-        return jsonify({'status': 'error', 'message': str(exc)}), 500
+        return jsonify({'status': 'error', 'message': 'Unable to solve airfoil panel method'}), 500
 
 
 @app.route('/api/wing/preview', methods=['POST'])
@@ -760,10 +788,10 @@ def wing_preview():
             'wing_area': float(vlm.wing_area),
         })
     except (TypeError, ValueError) as exc:
-        return jsonify({'status': 'error', 'message': str(exc)}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid wing preview parameters'}), 400
     except Exception as exc:
         logger.exception('Error generating wing preview')
-        return jsonify({'status': 'error', 'message': str(exc)}), 500
+        return jsonify({'status': 'error', 'message': 'Unable to generate wing preview'}), 500
 
 @app.route('/save_airfoil', methods=['POST'])
 @legacy_compatibility
@@ -878,16 +906,20 @@ def save_results_api():
         session_id = session.get('session_id')
         request_data = request.get_json(silent=True) or {}
         filename = str(request_data.get('filename', f'results_{session_id}')).strip()
-        if not re.fullmatch(r'[A-Za-z0-9._-]+', filename):
+        filename = _validated_result_filename(filename)
+        if filename is None:
             return jsonify({"status": "error", "message": "Invalid result filename"}), 400
         if not filename.endswith('.json'):
             filename += '.json'
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
+            return jsonify({"status": "error", "message": "Invalid result filename"}), 400
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if vlm is None:
             return jsonify({"status": "error", "message": "No active VLM session"}), 400
         vlm.calculate_wing_lift()
-        manifest = vlm.save_results(str(SAVED_STATES / filename))
+        manifest = vlm.save_results(str(_result_file_path(filename)))
         return jsonify({
             "status": "success",
             "filename": filename,
@@ -896,7 +928,7 @@ def save_results_api():
         })
     except Exception as e:
         logger.exception("Error saving VLM results")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Unable to save VLM results"}), 500
 
 @app.route('/api/results', methods=['GET'])
 @session_required
@@ -921,7 +953,7 @@ def list_results_api():
         return jsonify({'status': 'success', 'results': results})
     except Exception as e:
         logger.exception("Error listing VLM results")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'Unable to list VLM results'}), 500
 
 @app.route('/api/results/load', methods=['POST'])
 @session_required
@@ -930,16 +962,18 @@ def load_results_api():
         session_id = session.get('session_id')
         request_data = request.get_json(silent=True) or {}
         filename = str(request_data.get('filename', '')).strip()
-        if not re.fullmatch(r'[A-Za-z0-9._-]+\.json', filename):
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
             return jsonify({"status": "error", "message": "Invalid result filename"}), 400
         with vlm_sessions_lock:
             vlm = vlm_sessions.get(session_id)
         if vlm is None:
             return jsonify({"status": "error", "message": "No active VLM session"}), 400
-        manifest = json.loads((SAVED_STATES / filename).read_text(encoding='utf-8'))
+        result_path = _result_file_path(filename)
+        manifest = json.loads(result_path.read_text(encoding='utf-8'))
         vlm.apply_configuration(manifest['configuration'], include_flight=True)
         vlm.calculate_discretization()
-        vlm.load_results(str(SAVED_STATES / filename))
+        vlm.load_results(str(result_path))
         return jsonify({
             "status": "success",
             "filename": filename,
@@ -948,7 +982,7 @@ def load_results_api():
         })
     except Exception as e:
         logger.exception("Error loading VLM results")
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"status": "error", "message": "Unable to load VLM results"}), 400
 
 
 @app.route('/api/results', methods=['DELETE'])
@@ -959,10 +993,10 @@ def delete_results_api():
         filename = str(data.get('filename', '')).strip()
         if not filename:
             return jsonify({"status": "error", "message": "Filename required"}), 400
-        # Ensure filename looks sane
-        if not re.fullmatch(r'[A-Za-z0-9._-]+\.json', filename):
+        filename = _validated_result_filename(filename, require_json=True)
+        if filename is None:
             return jsonify({"status": "error", "message": "Invalid result filename"}), 400
-        manifest_path = SAVED_STATES / filename
+        manifest_path = _result_file_path(filename)
         if not manifest_path.exists():
             return jsonify({"status": "error", "message": "Result not found"}), 404
         try:
@@ -970,17 +1004,18 @@ def delete_results_api():
             manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
             arrays_file = manifest.get('arrays', {}).get('file')
             if arrays_file:
-                arrays_path = manifest_path.parent / arrays_file
-                if arrays_path.exists():
+                arrays_filename = _validated_result_filename(arrays_file)
+                arrays_path = _result_file_path(arrays_filename) if arrays_filename else None
+                if arrays_path is not None and arrays_path.exists():
                     arrays_path.unlink()
             manifest_path.unlink()
             return jsonify({"status": "success", "message": f"Deleted {filename}"})
         except Exception as e:
             logger.exception("Error deleting result files")
-            return jsonify({"status": "error", "message": str(e)}), 500
+            return jsonify({"status": "error", "message": "Unable to delete result files"}), 500
     except Exception as e:
         logger.exception("Error in delete_results_api")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Unable to delete VLM results"}), 500
 
 # STL generation endpoint
 @app.route('/generate_stl', methods=['GET', 'POST'])
@@ -1005,7 +1040,6 @@ def generate_stl():
 
         naca_resolution = safe_int(data.get('naca_resolution', 80), 80)
         stl_format = data.get('format', 'binary')
-        from werkzeug.utils import secure_filename
         filename = secure_filename(str(data.get('filename', f'wing_{session_id}.stl'))) or 'wing.stl'
 
         # Validate parameters.
@@ -1085,12 +1119,12 @@ def generate_stl():
         )
 
     except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"status": "error", "message": "Invalid STL generation parameters"}), 400
     except ImportError as e:
         logger.exception("Import error in /generate_stl")
         return jsonify({
             "status": "error",
-            "message": f"Missing required module: {e}"
+            "message": "STL generation dependencies are unavailable"
         }), 500
     except TimeoutError:
         logger.error("STL generation timeout")
@@ -1102,7 +1136,7 @@ def generate_stl():
         logger.exception("Error in /generate_stl")
         return jsonify({
             "status": "error",
-            "message": f"Server error: {e}"
+            "message": "Unable to generate STL"
         }), 500
 
 
@@ -1335,7 +1369,7 @@ def apply_plane_config():
         })
     except Exception as e:
         logger.exception('Error applying plane configuration')
-        return jsonify({'status': 'error', 'message': str(e)}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid plane configuration'}), 400
 
 @app.route('/api/validate_config', methods=['POST'])
 def validate_config():
