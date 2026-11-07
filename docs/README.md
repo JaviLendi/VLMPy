@@ -46,7 +46,7 @@ The VLM is widely used in computational fluid dynamics (CFD) to predict the aero
 
 <div align="center">
 
-![VLM Schematic](https://raw.githubusercontent.com/JaviLendi/VLMPy/main/docs/img/vlm_schematic.png) <!-- Replace this URL if you have a custom schematic -->
+![Steady VLM schematic showing the panel lattice, quarter-chord bound vortices, three-quarter-chord control points, and downstream wake](img/vlm_schematic.svg)
 
 </div>
 
