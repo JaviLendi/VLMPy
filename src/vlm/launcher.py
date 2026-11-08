@@ -124,6 +124,5 @@ def main():
     launcher = Launcher(application)
     return application.exec()
 
-
 if __name__ == "__main__":
     sys.exit(main())

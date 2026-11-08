@@ -145,11 +145,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =================== PLOT DATA FUNCTION ===================
+    let surfaceView = '3d';
+    let activeSurface = null;
+    let latestPlotRequest = 0;
+    window.plotSurfaceDiagnostic = (field, filename) => {
+        window.plotData(`/plot/${field}${surfaceView === '2d' ? '_2d' : ''}`, filename);
+    };
+
     window.plotData = (endpoint, filename) => {
         if (!DOM.plotArea) {
             console.error('[plotData] Plot area not found.');
             return;
         }
+        const requestId = ++latestPlotRequest;
+        const surfaceMatch = document.getElementById('results-form') && endpoint.match(/^\/plot\/(wi|gammas|curvature)(_2d)?$/);
+        const view = surfaceMatch?.[2] ? '2d' : '3d';
 
         const wingForm = document.getElementById('wing-form');
         const requestOptions = wingForm
@@ -164,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? window.vlmpyCore.request(endpoint, {method: 'POST', ...requestOptions})
             : fetch(endpoint, {method: 'POST', ...requestOptions}).then(response => response.json()))
         .then(data => {
+            if (requestId !== latestPlotRequest) return;
             // The optimized plot endpoint returns an object; accept the old
             // string format as a compatibility fallback for legacy routes.
             const plotData = typeof data.plot === 'string'
@@ -179,13 +190,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     format: 'svg'
                 }
             };
+            if (surfaceMatch) {
+                surfaceView = view;
+                activeSurface = {field: surfaceMatch[1], filename};
+                const nextView = view === '3d' ? '2d' : '3d';
+                config.modeBarButtonsToAdd = [{
+                    name: `Switch to ${nextView.toUpperCase()} view`,
+                    icon: Plotly.Icons['3d_rotate'],
+                    click: () => {
+                        if (!activeSurface) return;
+                        const nextEndpoint = `/plot/${activeSurface.field}${surfaceView === '3d' ? '_2d' : ''}`;
+                        window.plotData(nextEndpoint, activeSurface.filename);
+                    }
+                }];
+            } else {
+                activeSurface = null;
+            }
 
             // Keep the current camera and reuse the existing Plotly scene.
-            plotData.layout.uirevision = filename || endpoint;
+            plotData.layout.uirevision = surfaceMatch ? `${filename || endpoint}-${view}` : (filename || endpoint);
             plotData.layout.autosize = true;
             plotData.layout.paper_bgcolor = 'rgba(0,0,0,0)';
             plotData.layout.plot_bgcolor = 'rgba(0,0,0,0)';
             const narrowPlot = DOM.plotArea.clientWidth < 500;
+            DOM.plotArea.classList.toggle('plot-area-narrow', narrowPlot);
             if (narrowPlot) plotData.layout.margin = {...plotData.layout.margin, t: 80};
             if (plotData.layout.scene) {
                 plotData.layout.scene.bgcolor = 'rgba(0,0,0,0)';
@@ -201,12 +229,36 @@ document.addEventListener('DOMContentLoaded', () => {
             const plotPromise = plotIsMounted
                 ? Plotly.react(DOM.plotArea, plotData.data, plotData.layout, config)
                 : Plotly.newPlot(DOM.plotArea, plotData.data, plotData.layout, config);
-            plotPromise.catch(error => {
-                console.error('[plotData] Render error:', error);
+            return plotPromise.then(() => {
+                if (requestId !== latestPlotRequest) return;
+                if (surfaceMatch) {
+                    const nextView = view === '3d' ? '2D' : '3D';
+                    const button = DOM.plotArea.querySelector(`[data-title="Switch to ${nextView} view"]`);
+                    if (button) {
+                        button.classList.add('surface-view-toggle');
+                        let label = button.querySelector('.surface-view-label');
+                        if (!label) {
+                            label = document.createElement('span');
+                            label.className = 'surface-view-label';
+                            button.appendChild(label);
+                        }
+                        label.textContent = `View ${nextView}`;
+                        button.setAttribute('role', 'button');
+                        button.setAttribute('tabindex', '0');
+                        button.setAttribute('aria-label', `Switch to ${nextView} view`);
+                        button.onkeydown = event => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                button.click();
+                            }
+                        };
+                    }
+                }
+                return Plotly.Plots.resize(DOM.plotArea);
             });
-            plotPromise.then(() => Plotly.Plots.resize(DOM.plotArea));
         })
         .catch(error => {
+            if (requestId !== latestPlotRequest) return;
             console.error('[plotData] Error:', error);
             if (window.messageCenter) {
                 window.messageCenter.error(`Plot error: ${error.message}`);
@@ -446,6 +498,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.vlmpyCore?.setBusy(calculateButton, false);
             });
         return window.vlmCalculationPromise;
+    };
+
+    window.generateAngleSweep = () => {
+        const inputs = ['alpha-start', 'alpha-end', 'alpha-step'].map(id => document.getElementById(id));
+        const status = document.getElementById('alpha-range-status');
+        const angleList = document.getElementById('alphas');
+        const [start, end, step] = inputs.map(input => input.valueAsNumber);
+        if (![start, end, step].every(Number.isFinite) || step <= 0) {
+            status.textContent = 'Enter finite start and end angles and a positive step.';
+            return;
+        }
+        const intervals = Math.abs(end - start) / step;
+        const count = Math.floor(intervals + 8 * Number.EPSILON * Math.max(1, intervals)) + 1;
+        if (!Number.isFinite(count) || count > 1000) {
+            status.textContent = 'The range cannot contain more than 1000 angles.';
+            return;
+        }
+        const direction = end >= start ? 1 : -1;
+        let precisionLost = false;
+        const values = Array.from({length: count}, (_, index) => {
+            const offset = direction * step * index;
+            const raw = start + offset;
+            const tolerance = 8 * Number.EPSILON * Math.max(Math.abs(start), Math.abs(offset));
+            const value = Math.abs(raw) <= tolerance ? 0 : Number(raw.toPrecision(13));
+            const formatted = value.toLocaleString('en-US', {useGrouping: false, maximumFractionDigits: 12});
+            if (value !== 0 && Number(formatted) === 0) precisionLost = true;
+            return formatted;
+        });
+        if (precisionLost || (count > 1 && new Set(values).size !== count)) {
+            status.textContent = 'The range cannot be represented with sufficient precision.';
+            return;
+        }
+        angleList.value = values.join(', ');
+        angleList.dispatchEvent(new Event('input', {bubbles: true}));
+        status.textContent = '';
     };
 
     window.CalculateAngles = () => {

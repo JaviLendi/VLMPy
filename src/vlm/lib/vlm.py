@@ -1128,7 +1128,7 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
         colorscale=colorscale,
         cmin=vmin,
         cmax=vmax,
-        colorbar=dict(title=dict(text=legend, side='top'), thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20, len=0.8, x=1.0),
         opacity=opacity,
         flatshading=False,
         name='Wing Heatmap',
@@ -1159,10 +1159,15 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
 
     # Set axis ranges
     all_vertices = np.vstack([panel[1] for panel in panel_data])
-    x_range = [np.min(all_vertices[:, 0]), np.max(all_vertices[:, 0])]
-    y_range = [np.min(all_vertices[:, 1]), np.max(all_vertices[:, 1])]
-    z_range = [np.min(all_vertices[:, 2]), np.max(all_vertices[:, 2])]
-    dimensions = np.ptp(all_vertices, axis=0)
+    lower = np.min(all_vertices, axis=0)
+    upper = np.max(all_vertices, axis=0)
+    padding = max(np.max(upper - lower) * 0.05, 1e-6)
+    lower -= padding
+    upper += padding
+    x_range = [lower[0], upper[0]]
+    y_range = [lower[1], upper[1]]
+    z_range = [lower[2], upper[2]]
+    dimensions = upper - lower
     aspect = np.maximum(dimensions / max(np.max(dimensions), 1e-12), 1e-6)
 
     # Define layout
@@ -1176,11 +1181,11 @@ def plot_wing_heatmap(fig, panel_data, gammas, title='Wing Heatmap', legend='Gam
             aspectratio=dict(x=aspect[0], y=aspect[1], z=aspect[2]),
             camera=dict(
                 up=dict(x=0, y=0, z=1),
-                eye=dict(x=1.15, y=1.15, z=1.15)
+                eye=dict(x=1.5, y=1.5, z=1.5)
             )
         ),
         showlegend=False,
-        margin=dict(l=25, r=40, t=50, b=0)
+        margin=dict(l=25, r=100, t=50, b=0)
     )
 
     # Update the figure and return
@@ -1230,7 +1235,7 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         z=dummy_z,
         colorscale=colorscale,
         showscale=True,
-        colorbar=dict(title=dict(text=legend, side='right'), thickness=20),
+        colorbar=dict(title=dict(text=legend, side='right'), thickness=20, len=0.8, x=1.0),
         visible=True
     )
     fig.add_trace(dummy_heatmap)
@@ -1253,16 +1258,23 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         )
         fig.add_trace(trace)
 
+    all_vertices = np.vstack([panel[1] for panel in panel_data])
+    lower = np.min(all_vertices[:, :2], axis=0)
+    upper = np.max(all_vertices[:, :2], axis=0)
+
     # Plot the velocity vector u if provided
     if u_vec is not None and np.linalg.norm(u_vec[:2]) > 0.1:
         u_x, u_y = u_vec[0], u_vec[1]
         # Place the arrow at the origin (0, 0)
         x0, y0 = 0.0, 0.0
         # Scale the arrow for visibility
-        all_vertices = np.vstack([panel[1] for panel in panel_data])
         arrow_scale = 0.1 * max(np.ptp(all_vertices[:, 0]), np.ptp(all_vertices[:, 1])) / (np.linalg.norm([u_x, u_y]) + 1e-8)
         dx = u_x * arrow_scale
         dy = u_y * arrow_scale
+        lower = np.minimum(lower, [x0 - dx, y0 - dy])
+        upper = np.maximum(upper, [x0 - dx, y0 - dy])
+        lower = np.minimum(lower, [x0, y0])
+        upper = np.maximum(upper, [x0, y0])
         # Add an annotation arrow to represent the velocity vector
         fig.add_annotation(
             x=x0,
@@ -1284,17 +1296,17 @@ def plot_wing_heatmap_2d(fig, panel_data, gammas, title='Wing Heatmap', legend='
         )
         
     # Set axis ranges
-    all_vertices = np.vstack([panel[1] for panel in panel_data])
-    x_range = [np.min(all_vertices[:, 0]), np.max(all_vertices[:, 0])]
-    y_range = [np.min(all_vertices[:, 1]), np.max(all_vertices[:, 1])]
+    padding = max(np.max(upper - lower) * 0.05, 1e-6)
+    x_range = [lower[0] - padding, upper[0] + padding]
+    y_range = [lower[1] - padding, upper[1] + padding]
 
     # Define layout
     layout = go.Layout(
-        title=dict(text=title, x=0.5, xanchor='center'),
-        xaxis=dict(title='y [m]', range=x_range),
-        yaxis=dict(title='x [m]', range=y_range, scaleanchor='x', scaleratio=1),
+        title=dict(text=title, x=0.02, xanchor='left'),
+        xaxis=dict(title='y [m]', range=x_range, automargin=True),
+        yaxis=dict(title='x [m]', range=y_range, scaleanchor='x', scaleratio=1, automargin=True),
         showlegend=True,
-        margin=dict(l=0, r=0, t=50, b=0)
+        margin=dict(l=55, r=100, t=55, b=45)
     )
 
     # Update the figure layout

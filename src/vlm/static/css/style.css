@@ -448,7 +448,11 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 #plot-area .modebar-btn svg path { fill: var(--plotly-modebar-icon) !important; stroke: var(--plotly-modebar-icon) !important; }
 #plot-area .modebar-btn:hover, #plot-area .modebar-btn.active { background: transparent !important; color: var(--plotly-modebar-hover) !important; }
 #plot-area .modebar-btn:hover svg path, #plot-area .modebar-btn.active svg path { fill: var(--plotly-modebar-hover) !important; stroke: var(--plotly-modebar-hover) !important; }
-@media (max-width: 500px) { #plot-area .modebar { top: 48px !important; } }
+#plot-area .modebar-btn.surface-view-toggle { width: auto; min-width: 82px; gap: 5px; padding: 0 8px !important; background: var(--accent-color) !important; color: var(--button-text-active) !important; font: 700 11px var(--font-family); white-space: nowrap; }
+#plot-area .modebar-btn.surface-view-toggle svg path { fill: var(--button-text-active) !important; stroke: var(--button-text-active) !important; }
+#plot-area .modebar-btn.surface-view-toggle:hover { background: color-mix(in srgb, var(--accent-color) 85%, var(--text-color)) !important; }
+#plot-area .modebar-btn.surface-view-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+#plot-area.plot-area-narrow .modebar { top: 48px !important; }
 .results-header { align-items: center; }
 .results-back-link { flex: 0 0 auto; }
 .results-overview, .results-tool-section { margin-top: 18px; }
@@ -458,14 +462,14 @@ button:disabled, .btn:disabled, .landing-btn:disabled { opacity: 0.55; cursor: w
 .results-metric strong { display: block; margin: 7px 0; color: var(--text-color); font: 600 clamp(18px, 2vw, 26px)/1.1 var(--font-family); font-variant-numeric: tabular-nums; }
 .results-metric-primary strong { color: var(--accent-color); }
 .results-force-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-.results-force-grid .result-item { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0 0; border-top: 1px solid var(--surface-border); }
-.result-label, .result-value { color: var(--muted-color); font-size: 10px; }
-.result-value { color: var(--text-color); font-variant-numeric: tabular-nums; text-align: right; }
+.results-force-grid .results-metric strong { overflow-wrap: anywhere; }
 .results-subgroup { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .results-subgroup-label { flex: 0 0 30px; color: var(--accent-color); font: 9px var(--font-mono); }
 .results-legacy-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted-color); font-size: 10px; }
 .results-legacy-row input { flex: 1 1 auto; }
 .results-analysis-section .form-group { margin-bottom: 12px; }
+.alpha-range-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.alpha-range-status:not(:empty) { margin-top: 8px; color: var(--danger-color); font-size: 11px; }
 .derivatives-output { min-width: 0; margin-top: 12px; }
 .derivatives-table-scroll { width: 100%; overflow: auto; border: 1px solid var(--surface-border); background: var(--primary-bg); }
 .derivatives-table { width: 100%; min-width: 520px; border-collapse: separate; border-spacing: 0; color: var(--text-color); font-size: 11px; }

@@ -50,9 +50,9 @@
                 {% endfor %}
             </div>
             <div class="results-force-grid">
-                <div class="result-item"><span class="result-label">Wing lift</span><span class="result-value" id="result-wing-lift">{{ wing_lift }} N</span></div>
-                <div class="result-item"><span class="result-label">Horizontal stabilizer lift</span><span class="result-value" id="result-hs-lift">{{ hs_lift }} N</span></div>
-                <div class="result-item"><span class="result-label">Vertical stabilizer lift</span><span class="result-value" id="result-vs-lift">{{ vs_lift }} N</span></div>
+                <div class="results-metric"><span>Wing lift</span><strong id="result-wing-lift">{{ wing_lift }} N</strong></div>
+                <div class="results-metric"><span>Horizontal stabilizer lift</span><strong id="result-hs-lift">{{ hs_lift }} N</strong></div>
+                <div class="results-metric"><span>Vertical stabilizer lift</span><strong id="result-vs-lift">{{ vs_lift }} N</strong></div>
             </div>
         </section>
 
@@ -122,16 +122,11 @@
                     </div>
                     <button type="button" class="info-footer" onclick="closeInfo('results-heatmaps-info-popup')">Close</button>
                 </div>
-                <div class="results-subgroup"><span class="results-subgroup-label">3D</span><div class="button-group">
-                <button type="button" class="action-button" onclick="plotData('/plot/wi', 'Induced velocities')">Induced velocities</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/gammas', 'Gammas')">Gammas</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/curvature', 'Curvature')">Wing curvature</button>
-                </div></div>
-                <div class="results-subgroup"><span class="results-subgroup-label">2D</span><div class="button-group">
-                <button type="button" class="action-button" onclick="plotData('/plot/wi_2d', 'Induced velocities')">Induced velocities</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/gammas_2d', 'Gammas')">Gammas</button>
-                <button type="button" class="action-button" onclick="plotData('/plot/curvature_2d', 'Curvature')">Wing curvature</button>
-                </div></div>
+                <div class="button-group">
+                <button type="button" class="action-button" onclick="plotSurfaceDiagnostic('wi', 'Induced velocities')">Induced velocities</button>
+                <button type="button" class="action-button" onclick="plotSurfaceDiagnostic('gammas', 'Gammas')">Gammas</button>
+                <button type="button" class="action-button" onclick="plotSurfaceDiagnostic('curvature', 'Curvature')">Wing curvature</button>
+                </div>
             </section>
             <section class="results-tool-section" aria-labelledby="data-actions-title">
                 <div class="section-heading"><div><span class="results-eyebrow">Data</span><h3 id="data-actions-title">Save and load</h3></div>
@@ -195,7 +190,8 @@
             <h4><span class="material-icons" aria-hidden="true">info</span>Angles of Attack Info</h4>
             <div class="info-body">
             <ul>
-                <li><b>Angles of attack:</b> Comma-separated list in degrees (e.g. 0, 2, 4, 6).</li>
+                <li><b>Range:</b> Generate an ascending or descending sequence in degrees from the start, end and positive step. The end is included when it falls on a step.</li>
+                <li><b>Angles of attack:</b> Edit the generated list or enter a custom comma-separated list in degrees.</li>
                 <li><b>Calculate:</b> Runs the analysis for each angle. The API response contains CL, CD and the six integrated force and moment coefficient series.</li>
                 <li><b>Available plots:</b> Plot CL, CD, CX, CY, CZ, Cl, Cm or Cn against alpha. Each button replaces the current Plotly chart. Calculate a sweep first.</li>
                 <li>CD is induced drag only. The VLM does not model profile drag, separation or stall.</li>
@@ -204,6 +200,13 @@
             <button type="button" class="info-footer" onclick="closeInfo('results-alpha-info-popup')">Close</button>
         </div>
         <form id="analisis-form" aria-label="Analisis">
+            <div class="alpha-range-grid" role="group" aria-label="Angle range in degrees">
+                <div class="input-group"><label for="alpha-start">Start (°)</label><input id="alpha-start" type="number" step="any" value="-4"></div>
+                <div class="input-group"><label for="alpha-end">End (°)</label><input id="alpha-end" type="number" step="any" value="8"></div>
+                <div class="input-group"><label for="alpha-step">Step (°)</label><input id="alpha-step" type="number" step="any" value="2"></div>
+            </div>
+            <div class="button-group"><button type="button" class="action-button" id="generate-alpha-range" onclick="generateAngleSweep()">Generate range</button></div>
+            <div id="alpha-range-status" class="alpha-range-status" role="status" aria-live="polite"></div>
             <section class="form-group">
                 <div class="input-group">
                     <label for="alphas">Angles of attack (º):</label>
